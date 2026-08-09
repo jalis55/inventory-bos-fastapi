@@ -22,13 +22,9 @@ async def register(
     user_in: UserCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(
-        get_current_user),  # optional for bootstrap
+        get_current_user)
 ):
-    # Allow first user (no users yet) without auth
-    result = await db.execute(select(func.count()).select_from(User))
-    user_count = result.scalar()
-    if user_count == 0:
-        current_user = None
+
 
     user = await create_user(db, user_in, current_user)
 

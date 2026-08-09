@@ -1,12 +1,13 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
+from app.models.user import Role
 
 class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8)
     full_name: Optional[str] = None
-    role: str = "editor"   # only superadmin can set higher roles
+    role: Role=Role.SELLER
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -16,7 +17,7 @@ class UserOut(BaseModel):
     id: int
     email: EmailStr
     full_name: Optional[str]
-    role: str
+    role: Role
     is_active: bool
     created_at: datetime
 

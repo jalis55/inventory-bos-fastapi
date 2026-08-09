@@ -58,6 +58,5 @@ def require_roles(*allowed_roles: str):
     return role_checker
 
 # Convenience shortcuts
-require_superadmin = require_roles("superadmin")
-require_admin = require_roles("superadmin", "admin")
-require_editor = require_roles("superadmin", "admin", "editor")
+require_superadmin = require_roles("super_admin")
+require_admin = require_roles("super_admin", "admin")
