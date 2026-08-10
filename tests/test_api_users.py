@@ -15,7 +15,8 @@ async def test_list_users_admin(client, admin_user, auth_headers, create_user):
     await create_user("someone@example.com", role=Role.SELLER)
     resp = await client.get("/users/", headers=auth_headers(admin_user))
     assert resp.status_code == 200
-    emails = [u["email"] for u in resp.json()]
+    data = resp.json()
+    emails = [u["email"] for u in data["items"]]
     assert "someone@example.com" in emails
     assert admin_user.email in emails
 
