@@ -10,3 +10,10 @@ email-validator
 asyncpg
 psycopg2
 alembic
+
+# Testing
+pytest
+pytest-asyncio
+httpx
+aiosqlite
+
