@@ -7,6 +7,21 @@ import re
 from app.models.user import Role
 
 
+def validate_password_strength(v: str) -> str:
+    """Validate that a password meets the strength requirements."""
+    if len(v) < 8:
+        raise ValueError('Password must be at least 8 characters')
+    if not re.search(r'[A-Z]', v):
+        raise ValueError('Password must contain at least one uppercase letter')
+    if not re.search(r'[a-z]', v):
+        raise ValueError('Password must contain at least one lowercase letter')
+    if not re.search(r'\d', v):
+        raise ValueError('Password must contain at least one number')
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
+        raise ValueError('Password must contain at least one special character')
+    return v
+
+
 # User Create Schema
 class UserCreate(BaseModel):
     email: EmailStr
@@ -18,17 +33,7 @@ class UserCreate(BaseModel):
     @classmethod
     def validate_password(cls, v: str) -> str:
         """Validate password strength"""
-        if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters')
-        if not re.search(r'[A-Z]', v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not re.search(r'[a-z]', v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not re.search(r'\d', v):
-            raise ValueError('Password must contain at least one number')
-        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
-            raise ValueError('Password must contain at least one special character')
-        return v
+        return validate_password_strength(v)
 
 
 # User Login Schema
@@ -54,17 +59,7 @@ class PasswordReset(BaseModel):
     @classmethod
     def validate_new_password(cls, v: str) -> str:
         """Validate new password strength"""
-        if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters')
-        if not re.search(r'[A-Z]', v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not re.search(r'[a-z]', v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not re.search(r'\d', v):
-            raise ValueError('Password must contain at least one number')
-        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
-            raise ValueError('Password must contain at least one special character')
-        return v
+        return validate_password_strength(v)
 
     @field_validator('old_password')
     @classmethod

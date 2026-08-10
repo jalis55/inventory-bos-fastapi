@@ -54,7 +54,7 @@ async def test_change_password_success(client, seller_user, auth_headers):
         json={
             "email": seller_user.email,
             "old_password": "password123",
-            "new_password": "newpassword123",
+            "new_password": "NewStr0ng@123",
         },
         headers=auth_headers(seller_user),
     )
@@ -69,7 +69,7 @@ async def test_change_password_wrong_old_password(client, seller_user, auth_head
         json={
             "email": seller_user.email,
             "old_password": "wrong-old",
-            "new_password": "newpassword123",
+            "new_password": "NewStr0ng@123",
         },
         headers=auth_headers(seller_user),
     )
