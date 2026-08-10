@@ -23,6 +23,7 @@ from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.db.database import get_db
 from app.main import app
+from app.models.category import Category
 from app.models.user import Role, User
 from app.utils.security import create_access_token, hash_password
 
@@ -94,6 +95,20 @@ async def create_user(db_session):
         await db_session.commit()
         await db_session.refresh(user)
         return user
+
+    return _factory
+
+
+@pytest_asyncio.fixture
+async def create_category(db_session):
+    """Factory that persists a category directly (skipping the API)."""
+
+    async def _factory(name: str, is_active: bool = True) -> Category:
+        category = Category(name=name, is_active=is_active)
+        db_session.add(category)
+        await db_session.commit()
+        await db_session.refresh(category)
+        return category
 
     return _factory
 

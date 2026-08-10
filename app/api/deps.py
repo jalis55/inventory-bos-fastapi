@@ -63,3 +63,5 @@ def require_roles(*allowed_roles: str):
 # Convenience shortcuts
 require_superadmin = require_roles("super_admin")
 require_admin = require_roles("super_admin", "admin")
+require_superadmin_and_admin = require_roles("super_admin", "admin")
+require_superadmin_and_admin_and_store_keeper = require_roles("super_admin", "admin", "store_keeper")
