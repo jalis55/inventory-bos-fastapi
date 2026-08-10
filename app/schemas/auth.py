@@ -36,6 +36,13 @@ class UserOut(BaseModel):
     class Config:
         from_attributes = True
 
+
+class PaginatedUsers(BaseModel):
+    total: int
+    skip: int
+    limit: int
+    items: list[UserOut]
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

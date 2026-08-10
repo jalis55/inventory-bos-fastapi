@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.db.database import get_db
 from app.core.config import settings
 from app.models.user import User, Role
-from app.schemas.auth import UserOut,UserUpdate,PasswordReset
+from app.schemas.auth import UserOut, UserUpdate, PasswordReset, PaginatedUsers
 from app.api.deps import require_admin, require_superadmin, get_current_user, require_roles
 from app.utils.security import verify_password, hash_password
 from typing import List
@@ -13,13 +13,21 @@ from pydantic import EmailStr
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
-@router.get("/", response_model=List[UserOut])
+@router.get("/", response_model=PaginatedUsers)
 async def list_users(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Max records to return"),
 ):
-    users = (await db.execute(select(User))).scalars().all()
-    return users
+    total = (await db.execute(select(func.count()).select_from(User))).scalar_one()
+
+    result = await db.execute(
+        select(User).order_by(User.id).offset(skip).limit(limit)
+    )
+    users = result.scalars().all()
+
+    return PaginatedUsers(total=total, skip=skip, limit=limit, items=users)
 
 
 @router.get("/{user_id}", response_model=UserOut)
@@ -37,7 +45,7 @@ async def get_user(
 
 @router.post("/change-password")
 async def change_password(
-    request_body:PasswordReset,
+    request_body: PasswordReset,
     db: AsyncSession = Depends(get_db),  # ✅ AsyncSession
     current_user: User = Depends(get_current_user)
 ):
@@ -61,6 +69,7 @@ async def change_password(
         "message": "Password changed successfully"
     }
 
+
 @router.put("/{user_id}", response_model=UserOut)
 async def update_user(
     user_id: int,
@@ -69,45 +78,45 @@ async def update_user(
     current_user: User = Depends(get_current_user)
 ):
     """Update user details"""
-    
+
     # Get user to update
     result = await db.execute(select(User).where(User.id == user_id))
     user_to_update = result.scalar_one_or_none()
-    
+
     if not user_to_update:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
+
     # Permission checks
     if current_user.role not in [Role.SUPER_ADMIN, Role.ADMIN]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only super admin and admin can update users"
         )
-    
+
     if user_to_update.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot update your own account"
         )
-    
+
     if user_to_update.role == Role.SUPER_ADMIN and current_user.role != Role.SUPER_ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only super admin can update super admin users"
         )
-    
+
     if user_to_update.role == Role.ADMIN and current_user.role == Role.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin cannot update another admin user"
         )
-    
+
     # Process updates
     update_data = user_update.model_dump(exclude_unset=True)
-    
+
     # Check email uniqueness
     if "email" in update_data and update_data["email"] != user_to_update.email:
         email_check = await db.execute(
@@ -121,21 +130,17 @@ async def update_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered by another user"
             )
-    
 
-    
     # Apply updates
     for key, value in update_data.items():
         if value is not None:
             setattr(user_to_update, key, value)
-    
+
     # ✅ BEST PRACTICE: Just commit since object is already tracked
     await db.commit()
     await db.refresh(user_to_update)
-    
-    return user_to_update
-    
 
+    return user_to_update
 
 
 @router.post("/reset-password")
@@ -147,16 +152,16 @@ async def reset_password(
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     if current_user.role not in [Role.SUPER_ADMIN, Role.ADMIN]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
-    if current_user.role==Role.ADMIN and user.role==Role.SUPER_ADMIN:
+
+    if current_user.role == Role.ADMIN and user.role == Role.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
-    if current_user.role==Role.ADMIN and user.role==Role.ADMIN:
+
+    if current_user.role == Role.ADMIN and user.role == Role.ADMIN:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+
     new_password = settings.DEFAULT_RESET_PASSWORD
     user.hashed_password = hash_password(new_password)
     await db.commit()
@@ -166,4 +171,3 @@ async def reset_password(
         "message": "Password reset successfully",
         "new_password": new_password
     }
-    

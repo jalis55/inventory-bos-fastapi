@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     DEFAULT_RESET_PASSWORD:str
 
+    MAX_LOGIN_ATTEMPTS: int = 5
+    LOCKOUT_DURATION_MINUTES: int = 15
+
     # ✅ Use model_config instead of Config class
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -5,6 +5,7 @@ from app.models.user import User,Role
 from app.schemas.auth import UserCreate
 from app.utils.security import hash_password, verify_password
 from app.core.config import settings
+from datetime import datetime, timedelta, timezone
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -83,8 +84,40 @@ async def create_user(db: AsyncSession, user_in: UserCreate, current_user: User)
 
 async def authenticate_user(db: AsyncSession, email: str, password: str) -> User | None:
     user = await get_user_by_email(db, email)
-    if not user or not verify_password(password, user.hashed_password):
+    if not user:
         return None
+
+    now = datetime.now(timezone.utc)
+
+    # Currently locked out
+    if user.locked_until and user.locked_until > now:
+        remaining_minutes = int((user.locked_until - now).total_seconds() // 60) + 1
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=f"Account locked due to failed login attempts. Try again in {remaining_minutes} minute(s)."
+        )
+
+    # Lock has expired naturally — reset before evaluating this attempt
+    if user.locked_until and user.locked_until <= now:
+        user.failed_login_attempts = 0
+        user.locked_until = None
+
+    if not verify_password(password, user.hashed_password):
+        user.failed_login_attempts += 1
+        if user.failed_login_attempts >= settings.MAX_LOGIN_ATTEMPTS:
+            user.locked_until = now + timedelta(minutes=settings.LOCKOUT_DURATION_MINUTES)
+        db.add(user)
+        await db.commit()
+        return None
+
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
+
+    # Successful login — clear any prior failure state
+    if user.failed_login_attempts > 0 or user.locked_until:
+        user.failed_login_attempts = 0
+        user.locked_until = None
+        db.add(user)
+        await db.commit()
+
     return user

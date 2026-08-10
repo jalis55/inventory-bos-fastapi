@@ -12,19 +12,19 @@ from app.utils.security import (create_access_token,
 from app.api.deps import get_current_user, require_superadmin
 from app.models.user import User
 from app.core.config import settings
-
+from app.core.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/hour")
 async def register(
     user_in: UserCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(
         get_current_user)
 ):
-
 
     user = await create_user(db, user_in, current_user)
 
@@ -35,6 +35,7 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def login(user_in: UserLogin, response: Response, db: AsyncSession = Depends(get_db)):
     user = await authenticate_user(db, user_in.email, user_in.password)
     if not user:
@@ -52,6 +53,7 @@ async def login(user_in: UserLogin, response: Response, db: AsyncSession = Depen
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("20/minute")
 async def refresh_token(
     request: Request,
     response: Response,

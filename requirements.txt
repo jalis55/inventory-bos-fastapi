@@ -10,6 +10,7 @@ email-validator
 asyncpg
 psycopg2
 alembic
+slowapi
 
 # Testing
 pytest
