@@ -30,7 +30,8 @@ This app provides:
 - `app/api/endpoints/auth.py` - registration, login, refresh, logout, and current user
 - `app/api/endpoints/users.py` - user listing and detail endpoints
 - `app/core/config.py` - settings loaded from environment variables
-- `app/core/database.py` - async database engine and session setup
+- `app/db/base.py` - SQLAlchemy `DeclarativeBase` used by all models
+- `app/db/database.py` - async database engine and session setup
 - `app/models/user.py` - SQLAlchemy user model
 - `app/schemas/auth.py` - request/response schemas for auth and user data
 - `app/services/auth.py` - user creation and authentication logic

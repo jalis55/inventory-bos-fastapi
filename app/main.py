@@ -1,8 +1,8 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.database import engine
-from app.core.base import Base
+from app.db.database import engine
+from app.db.base import Base
 from app.api.apis import router as api_router
 
 @asynccontextmanager

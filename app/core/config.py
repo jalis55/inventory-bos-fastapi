@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     ACCESS_COOKIE_NAME: str = "access_token"
     REFRESH_COOKIE_NAME: str = "refresh_token"
 
-    DEFAULT_RESET_PASSWORD:str="password12345"
+    DEFAULT_RESET_PASSWORD:str
 
     # ✅ Use model_config instead of Config class
     model_config = SettingsConfigDict(

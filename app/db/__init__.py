@@ -1,0 +1,1 @@
+# app/db package - persistence infrastructure (engine, sessions, declarative base)

@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.core.database import get_db
+from app.db.database import get_db
 from app.core.config import settings
 from app.models.user import User, Role
-from app.schemas.auth import UserOut,UserUpdate
+from app.schemas.auth import UserOut,UserUpdate,PasswordReset
 from app.api.deps import require_admin, require_superadmin, get_current_user, require_roles
 from app.utils.security import verify_password, hash_password
 from typing import List
@@ -37,29 +37,21 @@ async def get_user(
 
 @router.post("/change-password")
 async def change_password(
-    old_password: str,
-    new_password: str,
+    request_body:PasswordReset,
     db: AsyncSession = Depends(get_db),  # ✅ AsyncSession
     current_user: User = Depends(get_current_user)
 ):
-    """Change user password (using query params)"""
+    """Change user password"""
 
     # Verify old password
-    if not verify_password(old_password, current_user.hashed_password):
+    if not verify_password(request_body.old_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid old password"
         )
 
-    # Validate new password
-    if len(new_password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New password must be at least 8 characters"
-        )
-
     # Update password
-    current_user.hashed_password = hash_password(new_password)
+    current_user.hashed_password = hash_password(request_body.new_password)
 
     db.add(current_user)
     await db.commit()

@@ -3,7 +3,7 @@ from sqlalchemy import String, Boolean, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
 from enum import Enum
-from app.core.base import Base
+from app.db.base import Base
 
 
 class Role(str, Enum):

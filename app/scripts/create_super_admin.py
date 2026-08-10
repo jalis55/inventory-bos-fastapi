@@ -8,7 +8,7 @@ Run: python -m app.scripts.create_super_admin
 from sqlalchemy import select
 from app.utils.security import hash_password
 from app.models.user import User, Role
-from app.core.database import AsyncSessionLocal
+from app.db.database import AsyncSessionLocal
 import sys
 import asyncio
 import getpass

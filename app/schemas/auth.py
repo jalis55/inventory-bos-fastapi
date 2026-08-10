@@ -19,6 +19,11 @@ class UserUpdate(BaseModel):
     role: Optional[Role] = None
     is_active: Optional[bool] = None
 
+class PasswordReset(BaseModel):
+    email:EmailStr
+    old_password: str = Field(..., min_length=8)
+    new_password: str = Field(..., min_length=8)
+    
 
 class UserOut(BaseModel):
     id: int
