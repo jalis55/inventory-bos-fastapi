@@ -236,3 +236,4 @@ What is covered:
 - The project currently focuses on **authentication and user management**;
   inventory-specific features will be layered on top of this foundation.
 
+
