@@ -20,6 +20,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/hour")
 async def register(
+    request: Request,
     user_in: UserCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(
@@ -36,7 +37,12 @@ async def register(
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("5/minute")
-async def login(user_in: UserLogin, response: Response, db: AsyncSession = Depends(get_db)):
+async def login(
+    request: Request,
+    user_in: UserLogin,
+    response: Response,
+    db: AsyncSession = Depends(get_db)
+):
     user = await authenticate_user(db, user_in.email, user_in.password)
     if not user:
         raise HTTPException(
