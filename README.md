@@ -10,6 +10,7 @@ A **FastAPI** backend providing cookie-based authentication (JWT access + refres
 - 🧾 **Role-based authorization** — `super_admin`, `admin`, `store_keeper`, `seller`
 - 👤 **User management** — create, list, update, password change/reset
 - 🗄️ **Async SQLAlchemy** with automatic table creation on startup
+- 🔒 **API rate limiting** (`slowapi`) on auth endpoints
 - 🧪 **Test suite** using `pytest` against an in-memory SQLite database
 
 ---
@@ -23,6 +24,7 @@ A **FastAPI** backend providing cookie-based authentication (JWT access + refres
 | Database  | PostgreSQL (`asyncpg` / `psycopg2`)                 |
 | Validation| Pydantic v2 + `email-validator`                     |
 | Auth      | `python-jose` (JWT), `passlib` (password hashing)   |
+| Rate limit| `slowapi` (per-client-IP limits)                    |
 | Testing   | `pytest`, `pytest-asyncio`, `httpx`, `aiosqlite`    |
 
 ---
@@ -40,7 +42,8 @@ inventory-bos/
 │   │       ├── auth.py         # /auth endpoints
 │   │       └── users.py        # /users endpoints
 │   ├── core/
-│   │   └── config.py           # App settings (env vars)
+│   │   ├── config.py           # App settings (env vars)
+│   │   └── limiter.py          # slowapi rate-limiter instance
 │   ├── db/
 │   │   ├── base.py             # SQLAlchemy DeclarativeBase
 │   │   └── database.py         # Async engine, session, get_db dependency
@@ -101,7 +104,7 @@ ACCESS_COOKIE_NAME=access_token
 REFRESH_COOKIE_NAME=refresh_token
 
 # Default password used when resetting user passwords
-DEFAULT_RESET_PASSWORD=password12345
+DEFAULT_RESET_PASSWORD=P@ssw0rd12345
 ```
 
 > Setting `COOKIE_SECURE=True` is required in production when serving over HTTPS.
@@ -163,7 +166,7 @@ uvicorn app.main:app --reload
 
 | Method | Path                        | Auth                 | Description                                                          |
 | ------ | --------------------------- | -------------------- | -------------------------------------------------------------------- |
-| GET    | `/users/`                   | `admin` / `super_admin` | List all users                                                     |
+| GET    | `/users/?skip=0&limit=20`   | `admin` / `super_admin` | List users (paginated → `{total, skip, limit, items}`) |
 | GET    | `/users/{user_id}`          | `admin` / `super_admin` | Get a user by ID                                                   |
 | PUT    | `/users/{user_id}`          | `admin` / `super_admin` | Update a user (no self-edit; admin can't edit other admins)        |
 | POST   | `/users/change-password`    | any authenticated user | Change own password (body: `email`, `old_password`, `new_password`) |
@@ -171,6 +174,29 @@ uvicorn app.main:app --reload
 
 > **Note:** `POST /auth/register` requires an authenticated `admin` or `super_admin`.
 > Use the `create_super_admin` script to bootstrap the first account.
+
+---
+
+## 🔒 Rate Limiting
+
+Auth endpoints are protected by `slowapi`, keyed by client IP address. When a
+limit is exceeded the API responds with `429 Rate Limit Exceeded`.
+
+| Endpoint       | Limit      |
+| -------------- | ---------- |
+| `POST /auth/register`  | `10 / hour` |
+| `POST /auth/login`     | `5 / minute` |
+| `POST /auth/refresh`   | `20 / minute` |
+
+### Password strength
+
+`register` and `change-password` enforce strong passwords:
+
+- At least **8 characters**
+- At least one **uppercase** letter
+- At least one **lowercase** letter
+- At least one **number**
+- At least one **special character** (e.g. `!@#$%^&*`)
 
 ---
 
