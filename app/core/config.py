@@ -24,8 +24,7 @@ class Settings(BaseSettings):
     ACCESS_COOKIE_NAME: str = "access_token"
     REFRESH_COOKIE_NAME: str = "refresh_token"
 
-    # Roles
-    ROLES: List[str] = ["superadmin", "admin", "editor"]
+    DEFAULT_RESET_PASSWORD:str="password12345"
 
     # ✅ Use model_config instead of Config class
     model_config = SettingsConfigDict(

@@ -13,6 +13,13 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    role: Optional[Role] = None
+    is_active: Optional[bool] = None
+
+
 class UserOut(BaseModel):
     id: int
     email: EmailStr

@@ -1,31 +1,177 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
-from app.models.user import User,Role
-from app.schemas.auth import UserOut
-from app.api.deps import require_admin, require_superadmin, get_current_user,require_roles
+from app.core.config import settings
+from app.models.user import User, Role
+from app.schemas.auth import UserOut,UserUpdate
+from app.api.deps import require_admin, require_superadmin, get_current_user, require_roles
+from app.utils.security import verify_password, hash_password
 from typing import List
+from pydantic import EmailStr
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
+
 @router.get("/", response_model=List[UserOut])
 async def list_users(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
     users = (await db.execute(select(User))).scalars().all()
     return users
 
+
 @router.get("/{user_id}", response_model=UserOut)
 async def get_user(
     user_id: int,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_roles(Role.SUPER_ADMIN,Role.ADMIN) ),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN)),
 ):
-    # user =await db.query(User).filter(User.id == user_id).first()
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+@router.post("/change-password")
+async def change_password(
+    old_password: str,
+    new_password: str,
+    db: AsyncSession = Depends(get_db),  # ✅ AsyncSession
+    current_user: User = Depends(get_current_user)
+):
+    """Change user password (using query params)"""
+
+    # Verify old password
+    if not verify_password(old_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid old password"
+        )
+
+    # Validate new password
+    if len(new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 8 characters"
+        )
+
+    # Update password
+    current_user.hashed_password = hash_password(new_password)
+
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+
+    return {
+        "message": "Password changed successfully"
+    }
+
+@router.put("/{user_id}", response_model=UserOut)
+async def update_user(
+    user_id: int,
+    user_update: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update user details"""
+    
+    # Get user to update
+    result = await db.execute(select(User).where(User.id == user_id))
+    user_to_update = result.scalar_one_or_none()
+    
+    if not user_to_update:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Permission checks
+    if current_user.role not in [Role.SUPER_ADMIN, Role.ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admin and admin can update users"
+        )
+    
+    if user_to_update.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot update your own account"
+        )
+    
+    if user_to_update.role == Role.SUPER_ADMIN and current_user.role != Role.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admin can update super admin users"
+        )
+    
+    if user_to_update.role == Role.ADMIN and current_user.role == Role.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin cannot update another admin user"
+        )
+    
+    # Process updates
+    update_data = user_update.model_dump(exclude_unset=True)
+    
+    # Check email uniqueness
+    if "email" in update_data and update_data["email"] != user_to_update.email:
+        email_check = await db.execute(
+            select(User).where(
+                User.email == update_data["email"],
+                User.id != user_id
+            )
+        )
+        if email_check.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered by another user"
+            )
+    
+
+    
+    # Apply updates
+    for key, value in update_data.items():
+        if value is not None:
+            setattr(user_to_update, key, value)
+    
+    # ✅ BEST PRACTICE: Just commit since object is already tracked
+    await db.commit()
+    await db.refresh(user_to_update)
+    
+    return user_to_update
+    
+
+
+
+@router.post("/reset-password")
+async def reset_password(
+    email: EmailStr,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if current_user.role not in [Role.SUPER_ADMIN, Role.ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    if current_user.role==Role.ADMIN and user.role==Role.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    if current_user.role==Role.ADMIN and user.role==Role.ADMIN:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    new_password = settings.DEFAULT_RESET_PASSWORD
+    user.hashed_password = hash_password(new_password)
+    await db.commit()
+    await db.refresh(user)
+
+    return {
+        "message": "Password reset successfully",
+        "new_password": new_password
+    }
+    
