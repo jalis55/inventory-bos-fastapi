@@ -1,9 +1,9 @@
 from fastapi import APIRouter,Depends,HTTPException,status,Query,Request
 from app.db.database import get_db
-from app.models.user import User, Role
+from app.models.user import User
 from app.models.category import Category
 from app.schemas.category import CategoryCreate, CategoryOut, PaginatedCategories
-from app.api.deps import require_admin, require_superadmin, get_current_user, require_roles
+from app.api.deps import get_current_user, require_superadmin_and_admin
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -29,7 +29,7 @@ async def list_categories(
 async def create_category(
     category:CategoryCreate,
     db:AsyncSession=Depends(get_db),
-    _:User=Depends(require_admin),
+    _:User=Depends(require_superadmin_and_admin),
 ):
     category=Category(**category.model_dump())
     db.add(category)
@@ -55,7 +55,7 @@ async def update_category(
     category_id:int,
     category:CategoryCreate,
     db:AsyncSession=Depends(get_db),
-    _:User=Depends(require_admin),
+    _:User=Depends(require_superadmin_and_admin),
 ):
     existing=(await db.execute(select(Category).where(Category.id==category_id))).scalar_one_or_none()
     if not existing:
@@ -69,7 +69,7 @@ async def update_category(
 async def delete_category(
     category_id:int,
     db:AsyncSession=Depends(get_db),
-    _:User=Depends(require_admin),
+    _:User=Depends(require_superadmin_and_admin),
 ):
     category=(await db.execute(select(Category).where(Category.id==category_id))).scalar_one_or_none()
     if not category:
