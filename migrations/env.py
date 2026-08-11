@@ -6,6 +6,9 @@ from app.db.base import Base
 from app.models.category import Category
 from app.models.company import Company
 from app.models.product import Product
+from app.models.batch import Batch
+from app.models.supplier import Supplier
+from app.models.customer import Customer 
 from app.models.product_variant import ProductVariant
 from app.models.user import User
 from alembic import context
