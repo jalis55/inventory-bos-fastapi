@@ -8,12 +8,19 @@ class CompanyCreate(BaseModel):
     model_config=ConfigDict(from_attributes=True)
 
 
-class CompanyOut(BaseModel):
-    id:int
-    name:str
-    created_at:datetime
+class CompanyUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=50)
+    is_active: bool | None = Field(default=None)
+    
+    model_config = ConfigDict(from_attributes=True)
 
-    model_config=ConfigDict(from_attributes=True)
+class CompanyOut(BaseModel):
+    id: int
+    name: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
 
 class PaginatedCompanies(BaseModel):
     total:int

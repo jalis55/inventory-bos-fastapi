@@ -1,6 +1,9 @@
 # Inventory BOS
 
-A **FastAPI** backend providing cookie-based authentication (JWT access + refresh tokens), role-based access control (RBAC), and user management. It is the foundation for a future inventory-management system built on async SQLAlchemy + PostgreSQL.
+A **FastAPI** backend for an **inventory management system**: cookie-based
+authentication (JWT access + refresh tokens), role-based access control (RBAC),
+user management, and full CRUD for companies, categories, products and product
+variants. Built on async SQLAlchemy + PostgreSQL.
 
 ---
 
@@ -9,23 +12,26 @@ A **FastAPI** backend providing cookie-based authentication (JWT access + refres
 - 🔐 **HTTP-only cookie authentication** with JWT access & refresh tokens
 - 🧾 **Role-based authorization** — `super_admin`, `admin`, `store_keeper`, `seller`
 - 👤 **User management** — create, list, update, password change/reset
-- 🗄️ **Async SQLAlchemy** with automatic table creation on startup
-- 🔒 **API rate limiting** (`slowapi`) on auth endpoints
+- 🏷️ **Inventory master data** — companies, categories, products & product variants (paginated CRUD)
+- 🚫 **Account lockout** after repeated failed logins (`MAX_LOGIN_ATTEMPTS`, `LOCKOUT_DURATION_MINUTES`)
+- 🗄️ **Async SQLAlchemy** with automatic table creation on startup + Alembic migrations
+- 🔒 **API rate limiting** (`slowapi`) on auth and password endpoints
 - 🧪 **Test suite** using `pytest` against an in-memory SQLite database
 
 ---
 
 ## 🧱 Tech Stack
 
-| Layer     | Technology                                          |
-| --------- | --------------------------------------------------- |
-| Framework | [FastAPI](https://fastapi.tiangolo.com/)            |
-| ORM       | SQLAlchemy 2.x (async)                              |
-| Database  | PostgreSQL (`asyncpg` / `psycopg2`)                 |
-| Validation| Pydantic v2 + `email-validator`                     |
-| Auth      | `python-jose` (JWT), `passlib` (password hashing)   |
-| Rate limit| `slowapi` (per-client-IP limits)                    |
-| Testing   | `pytest`, `pytest-asyncio`, `httpx`, `aiosqlite`    |
+| Layer     | Technology                                                       |
+| --------- | ---------------------------------------------------------------- |
+| Framework | [FastAPI](https://fastapi.tiangolo.com/)                         |
+| ORM       | SQLAlchemy 2.x (async)                                           |
+| Database  | PostgreSQL (`asyncpg` / `psycopg2`), SQLite in tests             |
+| Validation| Pydantic v2 + `email-validator`                                  |
+| Auth      | `python-jose` (JWT), `passlib` (password hashing)                |
+| Rate limit| `slowapi` (per-client-IP limits)                                 |
+| Migrations| Alembic                                                          |
+| Testing   | `pytest`, `pytest-asyncio`, `httpx`, `aiosqlite`                 |
 
 ---
 
@@ -37,10 +43,14 @@ inventory-bos/
 │   ├── main.py                 # FastAPI app setup & startup/shutdown lifecycle
 │   ├── api/
 │   │   ├── apis.py             # Router composition
-│   │   ├── deps.py             # Auth & role dependency helpers
+│   │   ├── deps.py             # Auth & role dependency helpers (get_current_user, require_roles)
 │   │   └── endpoints/
 │   │       ├── auth.py         # /auth endpoints
-│   │       └── users.py        # /users endpoints
+│   │       ├── users.py        # /users endpoints
+│   │       ├── category.py     # /categories endpoints
+│   │       ├── company.py      # /companies endpoints
+│   │       ├── product.py      # /products endpoints
+│   │       └── product_variant.py  # /product-variants endpoints
 │   ├── core/
 │   │   ├── config.py           # App settings (env vars)
 │   │   └── limiter.py          # slowapi rate-limiter instance
@@ -48,22 +58,30 @@ inventory-bos/
 │   │   ├── base.py             # SQLAlchemy DeclarativeBase
 │   │   └── database.py         # Async engine, session, get_db dependency
 │   ├── models/
-│   │   └── user.py             # User model + Role enum
+│   │   ├── user.py             # User model + Role enum
+│   │   ├── category.py         # Category model
+│   │   ├── company.py          # Company model
+│   │   ├── product.py          # Product model (FK → company/category/variant)
+│   │   └── product_variant.py  # ProductVariant model
 │   ├── schemas/
-│   │   └── auth.py             # Request/response Pydantic schemas
+│   │   ├── auth.py             # User/auth Pydantic schemas
+│   │   ├── category.py         # Category schemas
+│   │   ├── company.py          # Company schemas
+│   │   ├── product.py          # Product schemas
+│   │   └── product_variant.py  # Product variant schemas
 │   ├── services/
 │   │   └── auth.py             # Business logic (create/auth users)
 │   ├── utils/
 │   │   └── security.py         # Hashing, JWT, cookie helpers
 │   └── scripts/
 │       └── create_super_admin.py  # CLI to create the first super admin
+├── migrations/                 # Alembic migrations
 ├── tests/                      # pytest suite (unit + API integration)
 ├── requirements.txt
 └── .env                        # Environment variables (not committed)
 ```
 
 ---
-
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
@@ -81,9 +99,12 @@ uv sync
 pip install -r requirements.txt
 ```
 
+> Run these commands from the `inventory-bos` folder where the app lives.
+
 ### 3. Configure environment variables
 
-Create a `.env` file in the project root (or export the variables):
+Create a `.env` file in the project root (`inventory-bos/.env`) or export the
+variables:
 
 ```ini
 # Database
@@ -105,14 +126,18 @@ REFRESH_COOKIE_NAME=refresh_token
 
 # Default password used when resetting user passwords
 DEFAULT_RESET_PASSWORD=P@ssw0rd12345
+
+# Login hardening
+MAX_LOGIN_ATTEMPTS=5
+LOCKOUT_DURATION_MINUTES=15
 ```
 
 > Setting `COOKIE_SECURE=True` is required in production when serving over HTTPS.
 
 ### 4. Create the first super admin
 
-The app authenticates `admin`/`super_admin` roles to manage users, so the very
-first account is created via the CLI script:
+The app restricts user management to `admin` / `super_admin`, so the very first
+account is created via the CLI script:
 
 ```bash
 python -m app.scripts.create_super_admin
@@ -135,9 +160,12 @@ uvicorn app.main:app --reload
 - Successful `POST /auth/login` sets two **HTTP-only cookies**:
   - `access_token` → scoped to `/`, short-lived (15 min by default)
   - `refresh_token` → scoped to `/auth/refresh`, long-lived (7 days by default)
-- Protected endpoints accept either the cookie or a `Authorization: Bearer <token>` header.
+- Protected endpoints accept either the cookie or an
+  `Authorization: Bearer <token>` header.
 - `POST /auth/refresh` exchanges a valid refresh token for a new access token.
 - `POST /auth/logout` clears both cookies.
+- After `MAX_LOGIN_ATTEMPTS` (default 5) failed logins the account is locked for
+  `LOCKOUT_DURATION_MINUTES` (default 15) minutes.
 
 ### Roles
 
@@ -145,8 +173,8 @@ uvicorn app.main:app --reload
 | ------------- | -------------- | -------------------------------------------------------- |
 | `super_admin` | `super_admin`  | Full access; can create any role **except** super admin  |
 | `admin`       | `admin`        | Can create `store_keeper` / `seller`; manage users       |
-| `store_keeper`| `store_keeper` | Standard user                                           |
-| `seller`      | `seller`       | Standard user (default role)                            |
+| `store_keeper`| `store_keeper` | Standard user                                            |
+| `seller`      | `seller`       | Standard user (default role)                             |
 
 ---
 
@@ -164,29 +192,74 @@ uvicorn app.main:app --reload
 
 ### Users (`/users`)
 
-| Method | Path                        | Auth                 | Description                                                          |
-| ------ | --------------------------- | -------------------- | -------------------------------------------------------------------- |
-| GET    | `/users/?skip=0&limit=20`   | `admin` / `super_admin` | List users (paginated → `{total, skip, limit, items}`) |
-| GET    | `/users/{user_id}`          | `admin` / `super_admin` | Get a user by ID                                                   |
-| PUT    | `/users/{user_id}`          | `admin` / `super_admin` | Update a user (no self-edit; admin can't edit other admins)        |
-| POST   | `/users/change-password`    | any authenticated user | Change own password (body: `email`, `old_password`, `new_password`) |
-| POST   | `/users/reset-password`     | `admin` / `super_admin` | Reset a user's password to `DEFAULT_RESET_PASSWORD` (query `email`) |
+| Method | Path                        | Auth                        | Description                                                       |
+| ------ | --------------------------- | --------------------------- | ----------------------------------------------------------------- |
+| GET    | `/users/?skip=0&limit=20`   | `admin` / `super_admin`     | List users (paginated → `{total, skip, limit, items}`)            |
+| GET    | `/users/{user_id}`          | `admin` / `super_admin`     | Get a user by ID                                                  |
+| PUT    | `/users/{user_id}`          | `admin` / `super_admin`     | Update a user (no self-edit; admin can't edit other admins)       |
+| POST   | `/users/change-password`    | any authenticated user      | Change own password (body: `email`, `old_password`, `new_password`) |
+| POST   | `/users/reset-password`     | `admin` / `super_admin`     | Reset a user's password to `DEFAULT_RESET_PASSWORD` (query `email`) |
 
 > **Note:** `POST /auth/register` requires an authenticated `admin` or `super_admin`.
 > Use the `create_super_admin` script to bootstrap the first account.
 
 ---
+### Categories (`/categories`)
+
+| Method | Path                 | Auth                    | Description                                 |
+| ------ | -------------------- | ----------------------- | ------------------------------------------- |
+| GET    | `/categories/`       | any authenticated user  | List categories (paginated, `skip`/`limit`) |
+| GET    | `/categories/{id}`   | any authenticated user  | Get a category by ID                        |
+| POST   | `/categories/`       | `admin` / `super_admin` | Create a category (`name`)                  |
+| PUT    | `/categories/{id}`   | `admin` / `super_admin` | Update `name` / `is_active`                 |
+| DELETE | `/categories/{id}`   | `admin` / `super_admin` | Delete a category                           |
+
+### Companies (`/companies`)
+
+| Method | Path                | Auth                    | Description                                 |
+| ------ | ------------------- | ----------------------- | ------------------------------------------- |
+| GET    | `/companies/`       | any authenticated user  | List companies (paginated, `skip`/`limit`)  |
+| GET    | `/companies/{id}`   | any authenticated user  | Get a company by ID                         |
+| POST   | `/companies/`       | `admin` / `super_admin` | Create a company (`name`) — returns `201`   |
+| PUT    | `/companies/{id}`   | `admin` / `super_admin` | Update `name` / `is_active`                 |
+| DELETE | `/companies/{id}`   | `admin` / `super_admin` | Delete a company                            |
+
+### Products (`/products`)
+
+Products reference an existing `company`, `category` and `product variant`.
+
+| Method | Path                | Auth                    | Description                                                                 |
+| ------ | ------------------- | ----------------------- | --------------------------------------------------------------------------- |
+| GET    | `/products/`        | any authenticated user  | List products (paginated) with nested `company` / `category` / `variant`    |
+| GET    | `/products/{id}`    | any authenticated user  | Get a product with its nested relations                                     |
+| POST   | `/products/`        | `admin` / `super_admin` | Create a product (`name`, `company_id`, `category_id`, `product_variant_id`, `unit_of_measure`) — returns `201` |
+| PUT    | `/products/{id}`    | `admin` / `super_admin` | Update product fields                                                       |
+| DELETE | `/products/{id}`    | `admin` / `super_admin` | Delete a product                                                            |
+
+### Product Variants (`/product-variants`)
+
+| Method | Path                       | Auth                    | Description                                  |
+| ------ | -------------------------- | ----------------------- | -------------------------------------------- |
+| GET    | `/product-variants/`       | any authenticated user  | List product variants (paginated)            |
+| GET    | `/product-variants/{id}`   | any authenticated user  | Get a product variant by ID                  |
+| POST   | `/product-variants/`       | `admin` / `super_admin` | Create a product variant (`name`) — returns `201` |
+| PUT    | `/product-variants/{id}`   | `admin` / `super_admin` | Update `name` / `is_active`                  |
+| DELETE | `/product-variants/{id}`   | `admin` / `super_admin` | Delete a product variant                     |
+
+---
 
 ## 🔒 Rate Limiting
 
-Auth endpoints are protected by `slowapi`, keyed by client IP address. When a
-limit is exceeded the API responds with `429 Rate Limit Exceeded`.
+Auth and password endpoints are protected by `slowapi`, keyed by client IP
+address. When a limit is exceeded the API responds with `429 Rate Limit Exceeded`.
 
-| Endpoint       | Limit      |
-| -------------- | ---------- |
-| `POST /auth/register`  | `10 / hour` |
-| `POST /auth/login`     | `5 / minute` |
-| `POST /auth/refresh`   | `20 / minute` |
+| Endpoint                       | Limit         |
+| ------------------------------ | ------------- |
+| `POST /auth/register`          | `10 / hour`   |
+| `POST /auth/login`             | `5 / minute`  |
+| `POST /auth/refresh`           | `20 / minute` |
+| `POST /users/change-password`  | `10 / minute` |
+| `POST /users/reset-password`   | `10 / minute` |
 
 ### Password strength
 
@@ -200,24 +273,29 @@ limit is exceeded the API responds with `429 Rate Limit Exceeded`.
 
 ---
 
+
 ## 🧪 Running Tests
 
 The test suite runs against an in-memory SQLite database, so **no PostgreSQL is required**:
 
 ```bash
-# From the project root (inventory-bos)
+# From the `inventory-bos` folder
 uv run pytest -v
 
 # or
 python -m pytest -v
 ```
 
-What is covered:
+Current coverage — **142 tests** across 8 files:
 
 - `tests/test_security.py` — password hashing, JWT encode/decode (valid, tampered, expired), cookie helpers
 - `tests/test_services_auth.py` — service-layer logic and role rules
 - `tests/test_api_auth.py` — `/auth` endpoints via the FastAPI test client
 - `tests/test_api_users.py` — `/users` endpoints + RBAC (401 / 403 / 404 paths)
+- `tests/test_api_category.py` — `/categories` endpoints + RBAC
+- `tests/test_api_company.py` — `/companies` endpoints + RBAC
+- `tests/test_api_product.py` — `/products` endpoints + RBAC + nested relations
+- `tests/test_api_product_variant.py` — `/product-variants` endpoints + RBAC
 
 ---
 
@@ -232,8 +310,10 @@ What is covered:
 ## 📌 Notes
 
 - Tables are created automatically on startup via SQLAlchemy metadata
-  (`Base.metadata.create_all`).
-- The project currently focuses on **authentication and user management**;
-  inventory-specific features will be layered on top of this foundation.
-
+  (`Base.metadata.create_all`); Alembic migrations are included under `migrations/`.
+- All list endpoints return paginated responses shaped as
+  `{total, skip, limit, items}`.
+- When a product references a `company`, `category` or `product variant`, those
+  rows must already exist — the API relies on database foreign keys for that
+  integrity (create the master data first, then the product).
 

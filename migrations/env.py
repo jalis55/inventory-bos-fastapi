@@ -3,6 +3,10 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from app.db.base import Base
+from app.models.category import Category
+from app.models.company import Company
+from app.models.product import Product
+from app.models.product_variant import ProductVariant
 from app.models.user import User
 from alembic import context
 from app.core.config import settings

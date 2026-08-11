@@ -1,5 +1,5 @@
 from sqlalchemy import String,Boolean,DateTime,Integer,func
-from sqlalchemy.orm import Mapped,mapped_column
+from sqlalchemy.orm import Mapped,mapped_column,relationship
 from datetime import datetime
 from app.db.base import Base
 
@@ -10,4 +10,6 @@ class Company(Base):
     is_active:Mapped[bool] = mapped_column(Boolean,default=True)
     created_at:Mapped[datetime] = mapped_column(DateTime(timezone=True),server_default=func.now())
     updated_at:Mapped[datetime] = mapped_column(DateTime(timezone=True),server_default=func.now(),onupdate=func.now())
+
+    products: Mapped[list["Product"]] = relationship("Product", back_populates="company")
 

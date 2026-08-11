@@ -2,7 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from app.db.database import get_db
 from app.models.user import User
 from app.models.company import Company
-from app.schemas.company import CompanyCreate, CompanyOut, PaginatedCompanies
+from app.schemas.company import (
+    CompanyCreate,
+    CompanyOut,
+    CompanyUpdate,
+    PaginatedCompanies
+)
 from app.api.deps import get_current_user, require_superadmin_and_admin
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -26,6 +31,18 @@ async def list_companies(
     return PaginatedCompanies(total=total, skip=skip, limit=limit, items=companies)
 
 
+@router.post("/", response_model=CompanyOut, status_code=status.HTTP_201_CREATED)
+async def create_company(
+    company_in: CompanyCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_superadmin_and_admin),
+):
+    company = Company(**company_in.model_dump())
+    db.add(company)
+    await db.commit()
+    await db.refresh(company)
+    return company
+
 @router.get("/{company_id}", response_model=CompanyOut)
 async def get_company(
     company_id: int,
@@ -38,30 +55,24 @@ async def get_company(
     return company
 
 
-@router.post("/", response_model=CompanyOut)
-async def create_company(
-    company: CompanyCreate,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_superadmin_and_admin),
-):
-    company = Company(**company.model_dump())
-    db.add(company)
-    await db.commit()
-    await db.refresh(company)
-    return company
-
-
 @router.put("/{company_id}", response_model=CompanyOut)
 async def update_company(
     company_id: int,
-    company: CompanyCreate,
+    company_in: CompanyUpdate,                    # ← use CompanyUpdate
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_superadmin_and_admin),
 ):
-    existing = (await db.execute(select(Company).where(Company.id == company_id))).scalar_one_or_none()
+    result = await db.execute(select(Company).where(Company.id == company_id))
+    existing = result.scalar_one_or_none()
+
     if not existing:
         raise HTTPException(status_code=404, detail="Company not found")
-    existing.name = company.name
+
+    update_data = company_in.model_dump(exclude_unset=True)
+
+    for field, value in update_data.items():
+        setattr(existing, field, value)
+
     await db.commit()
     await db.refresh(existing)
     return existing

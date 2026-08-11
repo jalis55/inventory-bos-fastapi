@@ -66,7 +66,7 @@ async def test_create_company_by_admin(client, admin_user, auth_headers):
     resp = await client.post(
         "/companies/", json={"name": "Acme Corp"}, headers=auth_headers(admin_user)
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     data = resp.json()
     assert data["name"] == "Acme Corp"
     assert data["id"] is not None
@@ -78,7 +78,7 @@ async def test_create_company_by_superadmin(client, super_admin_user, auth_heade
     resp = await client.post(
         "/companies/", json={"name": "Stark Industries"}, headers=auth_headers(super_admin_user)
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert resp.json()["name"] == "Stark Industries"
 
 

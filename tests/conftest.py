@@ -25,6 +25,8 @@ from app.db.database import get_db
 from app.main import app
 from app.models.category import Category
 from app.models.company import Company
+from app.models.product import Product
+from app.models.product_variant import ProductVariant
 from app.models.user import Role, User
 from app.utils.security import create_access_token, hash_password
 
@@ -124,6 +126,51 @@ async def create_company(db_session):
         await db_session.commit()
         await db_session.refresh(company)
         return company
+
+    return _factory
+
+
+@pytest_asyncio.fixture
+async def create_product_variant(db_session):
+    """Factory that persists a product variant directly (skipping the API)."""
+
+    async def _factory(name: str, is_active: bool = True) -> ProductVariant:
+        variant = ProductVariant(name=name, is_active=is_active)
+        db_session.add(variant)
+        await db_session.commit()
+        await db_session.refresh(variant)
+        return variant
+
+    return _factory
+
+
+@pytest_asyncio.fixture
+async def create_product(db_session):
+    """Factory that persists a product directly (skipping the API).
+
+    The caller must pass ids for an existing company, category and variant.
+    """
+
+    async def _factory(
+        name: str,
+        company_id: int,
+        category_id: int,
+        product_variant_id: int,
+        unit_of_measure: str = "piece",
+        is_active: bool = True,
+    ) -> Product:
+        product = Product(
+            name=name,
+            company_id=company_id,
+            category_id=category_id,
+            product_variant_id=product_variant_id,
+            unit_of_measure=unit_of_measure,
+            is_active=is_active,
+        )
+        db_session.add(product)
+        await db_session.commit()
+        await db_session.refresh(product)
+        return product
 
     return _factory
 

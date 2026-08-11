@@ -2,7 +2,12 @@ from fastapi import APIRouter,Depends,HTTPException,status,Query,Request
 from app.db.database import get_db
 from app.models.user import User
 from app.models.category import Category
-from app.schemas.category import CategoryCreate, CategoryOut, PaginatedCategories
+from app.schemas.category import (
+    CategoryCreate,
+    CategoryOut,
+    CategoryUpdate,
+    PaginatedCategories
+    )
 from app.api.deps import get_current_user, require_superadmin_and_admin
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -50,17 +55,24 @@ async def get_category(
     return category
 
 
-@router.put("/{category_id}",response_model=CategoryOut)
+@router.put("/{category_id}", response_model=CategoryOut)
 async def update_category(
-    category_id:int,
-    category:CategoryCreate,
-    db:AsyncSession=Depends(get_db),
-    _:User=Depends(require_superadmin_and_admin),
+    category_id: int,
+    category_in: CategoryUpdate,                    
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_superadmin_and_admin),
 ):
-    existing=(await db.execute(select(Category).where(Category.id==category_id))).scalar_one_or_none()
+    result = await db.execute(select(Category).where(Category.id == category_id))
+    existing = result.scalar_one_or_none()
+
     if not existing:
-        raise HTTPException(status_code=404,detail="Category not found")
-    existing.name=category.name
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    update_data = category_in.model_dump(exclude_unset=True)
+
+    for field, value in update_data.items():
+        setattr(existing, field, value)
+
     await db.commit()
     await db.refresh(existing)
     return existing
