@@ -1,7 +1,5 @@
 from sqlalchemy import String, Boolean, DateTime, Integer, Float, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from .category import Category
-from .company import Company
 from .product_variant import ProductVariant
 from datetime import datetime
 from app.db.base import Base

@@ -25,8 +25,10 @@ from app.db.database import get_db
 from app.main import app
 from app.models.category import Category
 from app.models.company import Company
+from app.models.customer import Customer, CustomerType
 from app.models.product import Product
 from app.models.product_variant import ProductVariant
+from app.models.supplier import Supplier
 from app.models.user import Role, User
 from app.utils.security import create_access_token, hash_password
 
@@ -173,6 +175,63 @@ async def create_product(db_session):
         return product
 
     return _factory
+
+@pytest_asyncio.fixture
+async def create_supplier(db_session):
+    """Factory that persists a supplier directly (skipping the API)."""
+
+    async def _factory(
+        name: str,
+        phone: str = "01123456789",
+        email: str | None = None,
+        is_active: bool = True,
+        created_by: int | None = None,
+    ) -> Supplier:
+        supplier = Supplier(
+            name=name,
+            phone=phone,
+            email=email,
+            is_active=is_active,
+            created_by=created_by,
+        )
+        db_session.add(supplier)
+        await db_session.commit()
+        await db_session.refresh(supplier)
+        return supplier
+
+    return _factory
+
+
+@pytest_asyncio.fixture
+async def create_customer(db_session):
+    """Factory that persists a customer directly (skipping the API)."""
+
+    async def _factory(
+        name: str,
+        phone: str = "01123456789",
+        email: str | None = None,
+        nid: str | None = None,
+        customer_type: CustomerType = CustomerType.walk_in,
+        is_active: bool = True,
+        created_by: int | None = None,
+    ) -> Customer:
+        customer = Customer(
+            name=name,
+            phone=phone,
+            email=email,
+            nid=nid,
+            customer_type=customer_type,
+            is_active=is_active,
+            created_by=created_by,
+        )
+        db_session.add(customer)
+        await db_session.commit()
+        await db_session.refresh(customer)
+        return customer
+
+    return _factory
+
+
 
 
 @pytest_asyncio.fixture

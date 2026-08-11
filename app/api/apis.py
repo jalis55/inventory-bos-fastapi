@@ -5,7 +5,9 @@ from .endpoints import (
     category,
     company,
     product_variant,
-    product
+    product,
+    customer,
+    supplier
 )
 
 
@@ -16,3 +18,5 @@ router.include_router(category.router)
 router.include_router(company.router)
 router.include_router(product_variant.router)
 router.include_router(product.router)
+router.include_router(customer.router)
+router.include_router(supplier.router)

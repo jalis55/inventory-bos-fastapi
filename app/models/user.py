@@ -1,6 +1,7 @@
+
 from sqlalchemy import String, Boolean, DateTime, Integer, func
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column,relationship
 from datetime import datetime
 from enum import Enum
 from app.db.base import Base
@@ -31,4 +32,15 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+    #Relationships
+
+    customers: Mapped[list["Customer"]] = relationship(
+        "Customer", back_populates="user"
+    )
+
+    suppliers: Mapped[list["Supplier"]] = relationship(
+        "Supplier", back_populates="user"
     )
