@@ -42,3 +42,6 @@ class Batch(Base):
     product: Mapped["Product"] = relationship("Product", back_populates="batches")
     supplier: Mapped["Supplier"] = relationship("Supplier", back_populates="batches")
     user: Mapped["User"] = relationship("User", back_populates="batches")
+    stock_movements: Mapped[list["StockMovement"]] = relationship(
+        "StockMovement", back_populates="batch"
+    )

@@ -11,6 +11,7 @@ from app.models.supplier import Supplier
 from app.models.customer import Customer 
 from app.models.product_variant import ProductVariant
 from app.models.user import User
+from app.models.stock_movement import StockMovement
 from alembic import context
 from app.core.config import settings
 

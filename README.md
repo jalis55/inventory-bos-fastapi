@@ -2,8 +2,10 @@
 
 A **FastAPI** backend for an **inventory management system**: cookie-based
 authentication (JWT access + refresh tokens), role-based access control (RBAC),
-user management, and full CRUD for companies, categories, products and product
-variants. Built on async SQLAlchemy + PostgreSQL.
+user management, and full CRUD for companies, categories, products, product
+variants, customers, suppliers and batches. Stock is tracked through an
+**immutable, append-only stock-movement ledger** (bank-statement style).
+Built on async SQLAlchemy + PostgreSQL.
 
 ---
 
@@ -13,6 +15,9 @@ variants. Built on async SQLAlchemy + PostgreSQL.
 - 🧾 **Role-based authorization** — `super_admin`, `admin`, `store_keeper`, `seller`
 - 👤 **User management** — create, list, update, password change/reset
 - 🏷️ **Inventory master data** — companies, categories, products & product variants (paginated CRUD)
+- 🤝 **Customers & suppliers** — paginated CRUD for both
+- 📦 **Batches** — received stock per product/supplier lot, with auto-calculated quantities
+- 📒 **Immutable stock-movement ledger** — every `in`/`out`/`adjustment` is a permanent, append-only entry with `prev_quantity` → `current_quantity` audit trail (bank-statement semantics; corrections are reversing entries, never edits)
 - 🚫 **Account lockout** after repeated failed logins (`MAX_LOGIN_ATTEMPTS`, `LOCKOUT_DURATION_MINUTES`)
 - 🗄️ **Async SQLAlchemy** with automatic table creation on startup + Alembic migrations
 - 🔒 **API rate limiting** (`slowapi`) on auth and password endpoints
@@ -50,7 +55,11 @@ inventory-bos/
 │   │       ├── category.py     # /categories endpoints
 │   │       ├── company.py      # /companies endpoints
 │   │       ├── product.py      # /products endpoints
-│   │       └── product_variant.py  # /product-variants endpoints
+│   │       ├── product_variant.py  # /product-variants endpoints
+│   │       ├── customer.py     # /customers endpoints
+│   │       ├── supplier.py     # /suppliers endpoints
+│   │       ├── batch.py        # /batches endpoints
+│   │       └── stock_movement.py   # /stock-movements endpoints (ledger)
 │   ├── core/
 │   │   ├── config.py           # App settings (env vars)
 │   │   └── limiter.py          # slowapi rate-limiter instance
@@ -62,13 +71,21 @@ inventory-bos/
 │   │   ├── category.py         # Category model
 │   │   ├── company.py          # Company model
 │   │   ├── product.py          # Product model (FK → company/category/variant)
-│   │   └── product_variant.py  # ProductVariant model
+│   │   ├── product_variant.py  # ProductVariant model
+│   │   ├── customer.py         # Customer model + CustomerType enum
+│   │   ├── supplier.py         # Supplier model
+│   │   ├── batch.py            # Batch model (FK → product/supplier/user)
+│   │   └── stock_movement.py   # StockMovement model + MovementType (immutable ledger)
 │   ├── schemas/
 │   │   ├── auth.py             # User/auth Pydantic schemas
 │   │   ├── category.py         # Category schemas
 │   │   ├── company.py          # Company schemas
 │   │   ├── product.py          # Product schemas
-│   │   └── product_variant.py  # Product variant schemas
+│   │   ├── product_variant.py  # Product variant schemas
+│   │   ├── customer.py         # Customer schemas
+│   │   ├── supplier.py         # Supplier schemas
+│   │   ├── batch.py            # Batch schemas
+│   │   └── stock_movement.py   # Stock movement schemas
 │   ├── services/
 │   │   └── auth.py             # Business logic (create/auth users)
 │   ├── utils/
@@ -246,6 +263,60 @@ Products reference an existing `company`, `category` and `product variant`.
 | PUT    | `/product-variants/{id}`   | `admin` / `super_admin` | Update `name` / `is_active`                  |
 | DELETE | `/product-variants/{id}`   | `admin` / `super_admin` | Delete a product variant                     |
 
+### Customers (`/customers`)
+
+| Method | Path                  | Auth                    | Description                                                            |
+| ------ | --------------------- | ----------------------- | ---------------------------------------------------------------------- |
+| GET    | `/customers/`         | any authenticated user  | List customers (paginated)                                             |
+| GET    | `/customers/{id}`     | any authenticated user  | Get a customer by ID                                                   |
+| POST   | `/customers/`         | `admin` / `super_admin` | Create a customer (`name`, `phone`, `email?`, `nid?`, `customer_type`) — returns `201` |
+| PUT    | `/customers/{id}`     | `admin` / `super_admin` | Update customer fields                                                 |
+| DELETE | `/customers/{id}`     | `admin` / `super_admin` | Delete a customer                                                      |
+
+### Suppliers (`/suppliers`)
+
+| Method | Path                  | Auth                    | Description                                                            |
+| ------ | --------------------- | ----------------------- | ---------------------------------------------------------------------- |
+| GET    | `/suppliers/`         | any authenticated user  | List suppliers (paginated)                                             |
+| GET    | `/suppliers/{id}`     | any authenticated user  | Get a supplier by ID                                                   |
+| POST   | `/suppliers/`         | `admin` / `super_admin` | Create a supplier (`name`, `phone`, `email?`) — returns `201`          |
+| PUT    | `/suppliers/{id}`     | `admin` / `super_admin` | Update supplier fields                                                 |
+| DELETE | `/suppliers/{id}`     | `admin` / `super_admin` | Delete a supplier                                                      |
+
+### Batches (`/batches`)
+
+Batches record received stock for a specific product + supplier lot.
+
+| Method | Path              | Auth                    | Description                                                                       |
+| ------ | ----------------- | ----------------------- | --------------------------------------------------------------------------------- |
+| GET    | `/batches/`        | any authenticated user  | List batches (paginated) with nested `product` / `supplier` / `user`              |
+| GET    | `/batches/{id}`    | any authenticated user  | Get a batch with its nested relations                                             |
+| POST   | `/batches/`        | `admin` / `super_admin` | Create a batch (`product_id`, `supplier_id`, packaging & pricing fields) — returns `201`; **also writes the origin `IN` ledger entry** |
+| PUT    | `/batches/{id}`    | `admin` / `super_admin` | Update batch fields                                                               |
+| DELETE | `/batches/{id}`    | `admin` / `super_admin` | Delete a batch                                                                    |
+
+### Stock Movements (`/stock-movements`) — immutable ledger
+
+Movements are **append-only**: you can create them and read them, but they can
+never be edited or deleted. Creating a movement atomically adjusts the parent
+batch balance (`Batch.quantity`); an `OUT`/`ADJUSTMENT` that would drive the
+balance below zero is rejected with `400`.
+
+| Method | Path                          | Auth                                       | Description                                                                              |
+| ------ | ----------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| POST   | `/stock-movements/`           | `super_admin` / `admin` / `store_keeper`   | Record a movement (`batch_id`, `movement_type`, `quantity`, `reference?`, `supplier_id?`, `customer_id?`, `reverses_id?`) — returns `201` |
+| GET    | `/stock-movements/`           | any authenticated user                     | List movements (paginated, optional `?batch_id=`)                                        |
+| GET    | `/stock-movements/{id}`       | any authenticated user                     | Get a movement by ID                                                                     |
+
+**Semantics**
+
+- `movement_type = in` → balance **increases**; `out` / `adjustment` → **decreases**.
+- Each row stores `prev_quantity` (balance before) and `current_quantity`
+  (balance after), so the ledger is self-verifying:
+  `prev_quantity ± quantity == current_quantity`.
+- To correct a mistaken entry, **append a reversing entry** (set `reverses_id`
+  to the original movement's ID) rather than editing it — bank-statement style.
+
 ---
 
 ## 🔒 Rate Limiting
@@ -286,7 +357,7 @@ uv run pytest -v
 python -m pytest -v
 ```
 
-Current coverage — **142 tests** across 8 files:
+Current coverage — **215 tests** across 11 files:
 
 - `tests/test_security.py` — password hashing, JWT encode/decode (valid, tampered, expired), cookie helpers
 - `tests/test_services_auth.py` — service-layer logic and role rules
@@ -296,6 +367,9 @@ Current coverage — **142 tests** across 8 files:
 - `tests/test_api_company.py` — `/companies` endpoints + RBAC
 - `tests/test_api_product.py` — `/products` endpoints + RBAC + nested relations
 - `tests/test_api_product_variant.py` — `/product-variants` endpoints + RBAC
+- `tests/test_api_customer.py` — `/customers` endpoints + RBAC
+- `tests/test_api_supplier.py` — `/suppliers` endpoints + RBAC
+- `tests/test_api_stock_movement.py` — `/stock-movements` ledger: create in/out, overdraw rejection, reversal, immutability (405 on PUT/DELETE), RBAC
 
 ---
 
@@ -313,7 +387,13 @@ Current coverage — **142 tests** across 8 files:
   (`Base.metadata.create_all`); Alembic migrations are included under `migrations/`.
 - All list endpoints return paginated responses shaped as
   `{total, skip, limit, items}`.
-- When a product references a `company`, `category` or `product variant`, those
-  rows must already exist — the API relies on database foreign keys for that
-  integrity (create the master data first, then the product).
+- When a record references another table (e.g. a product → `company` /
+  `category` / `product variant`, a batch → `product` / `supplier`, or a stock
+  movement → `batch`), the referenced rows must already exist — the API relies
+  on database foreign keys for that integrity (create the master data first,
+  then the dependent record).
+- Stock balance is derived from the `stock_movements` ledger: each batch
+  creation writes an origin `IN` entry, and later `in`/`out`/`adjustment`
+  movements update the batch balance. Never delete or edit a movement — append
+  a reversing entry instead (see Stock Movements above).
 

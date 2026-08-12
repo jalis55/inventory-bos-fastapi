@@ -7,6 +7,8 @@ from app.models.product import Product
 from app.models.product_variant import ProductVariant
 from app.models.supplier import Supplier
 from app.models.user import Role, User
+from app.models.batch import Batch
+from app.models.stock_movement import StockMovement, MovementType
 
 __all__ = [
     "Category",
@@ -17,4 +19,7 @@ __all__ = [
     "Role",
     "Supplier",
     "User",
+    "Batch",
+    "StockMovement",
+    "MovementType",
 ]

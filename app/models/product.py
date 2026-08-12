@@ -37,3 +37,6 @@ class Product(Base):
         "Category", back_populates="products")
     product_variant: Mapped["ProductVariant"] = relationship(
         "ProductVariant", back_populates="products")
+    batches: Mapped[list["Batch"]] = relationship("Batch", back_populates="product")
+
+    batches: Mapped[list["Batch"]] = relationship("Batch", back_populates="product")

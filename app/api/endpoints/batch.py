@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from app.db.database import get_db
 from app.models.user import User
 from app.models.batch import Batch
+from app.models.stock_movement import StockMovement, MovementType
 from app.schemas.batch import (
     BatchCreate,
     BatchUpdate,
@@ -83,6 +84,20 @@ async def create_batch(
     )
 
     db.add(batch)
+    await db.flush()  # obtain batch.id before creating the origin movement
+
+    # Origin IN movement so the stock ledger is complete from the first entry.
+    db.add(
+        StockMovement(
+            batch_id=batch.id,
+            movement_type=MovementType.IN,
+            quantity=batch.initial_quantity,
+            prev_quantity=0,
+            current_quantity=batch.initial_quantity,
+            created_by=current_user.id,
+        )
+    )
+
     await db.commit()
     await db.refresh(batch)
 

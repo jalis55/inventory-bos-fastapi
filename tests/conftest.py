@@ -30,6 +30,8 @@ from app.models.product import Product
 from app.models.product_variant import ProductVariant
 from app.models.supplier import Supplier
 from app.models.user import Role, User
+from app.models.batch import Batch
+from app.models.stock_movement import StockMovement, MovementType
 from app.utils.security import create_access_token, hash_password
 
 
@@ -232,6 +234,89 @@ async def create_customer(db_session):
     return _factory
 
 
+@pytest_asyncio.fixture
+async def create_batch(db_session):
+    """Factory that persists a batch directly (skipping the API).
+
+    Also writes the origin IN stock movement, mirroring the API behaviour.
+    """
+
+    async def _factory(
+        product_id: int,
+        supplier_id: int,
+        received_quantity: int = 10,
+        received_unit: str = "carton",
+        units_per_package: int = 1,
+        unit_price: float = 100.0,
+        sell_price: float = 150.0,
+        created_by: int | None = None,
+    ) -> Batch:
+        total = received_quantity * units_per_package
+        batch = Batch(
+            product_id=product_id,
+            supplier_id=supplier_id,
+            received_quantity=received_quantity,
+            received_unit=received_unit,
+            units_per_package=units_per_package,
+            initial_quantity=total,
+            quantity=total,
+            unit_price=unit_price,
+            sell_price=sell_price,
+            created_by=created_by,
+        )
+        db_session.add(batch)
+        await db_session.flush()
+        db_session.add(
+            StockMovement(
+                batch_id=batch.id,
+                movement_type=MovementType.IN,
+                quantity=total,
+                prev_quantity=0,
+                current_quantity=total,
+                created_by=created_by,
+            )
+        )
+        await db_session.commit()
+        await db_session.refresh(batch)
+        return batch
+
+    return _factory
+
+
+@pytest_asyncio.fixture
+async def create_stock_movement(db_session):
+    """Factory that persists a stock movement directly (skipping the API)."""
+
+    async def _factory(
+        batch_id: int,
+        movement_type: MovementType,
+        quantity: int,
+        prev_quantity: int = 0,
+        current_quantity: int | None = None,
+        reference: str | None = None,
+        supplier_id: int | None = None,
+        customer_id: int | None = None,
+        created_by: int | None = None,
+    ) -> StockMovement:
+        if current_quantity is None:
+            current_quantity = prev_quantity + quantity
+        movement = StockMovement(
+            batch_id=batch_id,
+            movement_type=movement_type,
+            quantity=quantity,
+            prev_quantity=prev_quantity,
+            current_quantity=current_quantity,
+            reference=reference,
+            supplier_id=supplier_id,
+            customer_id=customer_id,
+            created_by=created_by,
+        )
+        db_session.add(movement)
+        await db_session.commit()
+        await db_session.refresh(movement)
+        return movement
+
+    return _factory
 
 
 @pytest_asyncio.fixture
