@@ -12,6 +12,7 @@ from app.models.customer import Customer
 from app.models.product_variant import ProductVariant
 from app.models.user import User
 from app.models.stock_movement import StockMovement
+from app.models.supplier_return import SupplierReturn, SupplierReturnItem
 from alembic import context
 from app.core.config import settings
 

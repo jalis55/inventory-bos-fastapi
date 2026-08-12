@@ -10,6 +10,7 @@ from .endpoints import (
     supplier,
     batch,
     stock_movement,
+    supplier_return,
 )
 
 
@@ -24,3 +25,4 @@ router.include_router(customer.router)
 router.include_router(supplier.router)
 router.include_router(batch.router)
 router.include_router(stock_movement.router)
+router.include_router(supplier_return.router)

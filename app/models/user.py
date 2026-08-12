@@ -53,4 +53,8 @@ class User(Base):
         "StockMovement", back_populates="user"
     )
 
+    supplier_returns: Mapped[list["SupplierReturn"]] = relationship(
+        "SupplierReturn", back_populates="user"
+    )
+
     batches: Mapped[list["Batch"]] = relationship("Batch", back_populates="user")

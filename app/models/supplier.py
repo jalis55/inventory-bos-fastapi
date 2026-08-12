@@ -27,4 +27,7 @@ class Supplier(Base):
     stock_movements: Mapped[list["StockMovement"]] = relationship(
         "StockMovement", back_populates="supplier"
     )
+    supplier_returns: Mapped[list["SupplierReturn"]] = relationship(
+        "SupplierReturn", back_populates="supplier"
+    )
 

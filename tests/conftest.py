@@ -32,6 +32,7 @@ from app.models.supplier import Supplier
 from app.models.user import Role, User
 from app.models.batch import Batch
 from app.models.stock_movement import StockMovement, MovementType
+from app.models.supplier_return import SupplierReturn, SupplierReturnItem, SupplierReturnStatus
 from app.utils.security import create_access_token, hash_password
 
 

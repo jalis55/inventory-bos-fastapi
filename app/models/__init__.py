@@ -9,6 +9,7 @@ from app.models.supplier import Supplier
 from app.models.user import Role, User
 from app.models.batch import Batch
 from app.models.stock_movement import StockMovement, MovementType
+from app.models.supplier_return import SupplierReturn, SupplierReturnItem, SupplierReturnStatus
 
 __all__ = [
     "Category",
@@ -22,4 +23,7 @@ __all__ = [
     "Batch",
     "StockMovement",
     "MovementType",
+    "SupplierReturn",
+    "SupplierReturnItem",
+    "SupplierReturnStatus",
 ]
