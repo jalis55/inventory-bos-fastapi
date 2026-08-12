@@ -30,4 +30,7 @@ class Supplier(Base):
     supplier_returns: Mapped[list["SupplierReturn"]] = relationship(
         "SupplierReturn", back_populates="supplier"
     )
+    supplier_payments: Mapped[list["SupplierPayment"]] = relationship(
+        "SupplierPayment", back_populates="supplier"
+    )
 

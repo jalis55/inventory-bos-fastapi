@@ -4,8 +4,9 @@ A **FastAPI** backend for an **inventory management system**: cookie-based
 authentication (JWT access + refresh tokens), role-based access control (RBAC),
 user management, and full CRUD for companies, categories, products, product
 variants, customers, suppliers and batches. Stock is tracked through an
-**immutable, append-only stock-movement ledger** (bank-statement style).
-Built on async SQLAlchemy + PostgreSQL.
+**immutable, append-only stock-movement ledger** (bank-statement style), and
+**supplier returns** + a per-batch **supplier payable ledger** handle stock
+corrections and paying suppliers. Built on async SQLAlchemy + PostgreSQL.
 
 ---
 
@@ -18,6 +19,8 @@ Built on async SQLAlchemy + PostgreSQL.
 - 🤝 **Customers & suppliers** — paginated CRUD for both
 - 📦 **Batches** — received stock per product/supplier lot, with auto-calculated quantities
 - 📒 **Immutable stock-movement ledger** — every `in`/`out`/`adjustment` is a permanent, append-only entry with `prev_quantity` → `current_quantity` audit trail (bank-statement semantics; corrections are reversing entries, never edits)
+- ↩️ **Supplier returns** — return goods to a supplier from specific batches; atomically posts immutable `OUT` movements
+- 💸 **Supplier payable ledger** — immutable per-batch payments; `outstanding = total_cost − returned − paid`; overpayments rejected and supplier returns lower what you owe
 - 🚫 **Account lockout** after repeated failed logins (`MAX_LOGIN_ATTEMPTS`, `LOCKOUT_DURATION_MINUTES`)
 - 🗄️ **Async SQLAlchemy** with automatic table creation on startup + Alembic migrations
 - 🔒 **API rate limiting** (`slowapi`) on auth and password endpoints
@@ -59,7 +62,9 @@ inventory-bos/
 │   │       ├── customer.py     # /customers endpoints
 │   │       ├── supplier.py     # /suppliers endpoints
 │   │       ├── batch.py        # /batches endpoints
-│   │       └── stock_movement.py   # /stock-movements endpoints (ledger)
+│   │       ├── stock_movement.py   # /stock-movements endpoints (ledger)
+│   │       ├── supplier_return.py  # /supplier-returns endpoints
+│   │       └── supplier_payment.py # /supplier-payments endpoints (payable ledger)
 │   ├── core/
 │   │   ├── config.py           # App settings (env vars)
 │   │   └── limiter.py          # slowapi rate-limiter instance
@@ -75,7 +80,9 @@ inventory-bos/
 │   │   ├── customer.py         # Customer model + CustomerType enum
 │   │   ├── supplier.py         # Supplier model
 │   │   ├── batch.py            # Batch model (FK → product/supplier/user)
-│   │   └── stock_movement.py   # StockMovement model + MovementType (immutable ledger)
+│   │   ├── stock_movement.py   # StockMovement model + MovementType (immutable ledger)
+│   │   ├── supplier_return.py  # SupplierReturn + SupplierReturnItem models
+│   │   └── supplier_payment.py # SupplierPayment model (payable ledger)
 │   ├── schemas/
 │   │   ├── auth.py             # User/auth Pydantic schemas
 │   │   ├── category.py         # Category schemas
@@ -85,7 +92,9 @@ inventory-bos/
 │   │   ├── customer.py         # Customer schemas
 │   │   ├── supplier.py         # Supplier schemas
 │   │   ├── batch.py            # Batch schemas
-│   │   └── stock_movement.py   # Stock movement schemas
+│   │   ├── stock_movement.py   # Stock movement schemas
+│   │   ├── supplier_return.py  # Supplier return schemas
+│   │   └── supplier_payment.py # Supplier payment schemas
 │   ├── services/
 │   │   └── auth.py             # Business logic (create/auth users)
 │   ├── utils/
@@ -317,6 +326,48 @@ balance below zero is rejected with `400`.
 - To correct a mistaken entry, **append a reversing entry** (set `reverses_id`
   to the original movement's ID) rather than editing it — bank-statement style.
 
+### Supplier Returns (`/supplier-returns`)
+
+Returning goods to a supplier (e.g. expired/defective stock) from specific
+batches. Creating a return **atomically posts an `OUT` stock movement** for each
+line (deducting the batch) and reduces the supplier payable. Immutable — no
+edit/delete.
+
+| Method | Path                        | Auth                                     | Description                                                                                 |
+| ------ | --------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------- |
+| POST   | `/supplier-returns/`        | `super_admin` / `admin` / `store_keeper` | Create a return (`supplier_id`, `return_date`, `reason?`, `items: [{batch_id, quantity, unit_price?}]`) — returns `201`; posts `OUT` movements |
+| GET    | `/supplier-returns/`        | any authenticated user                   | List returns (paginated) with `supplier` + `items`                                          |
+| GET    | `/supplier-returns/{id}`    | any authenticated user                   | Get a return by ID                                                                          |
+
+Rules: each returned batch must belong to the return's supplier, and the
+returned quantity cannot exceed the batch's on-hand stock (rejected with `400`).
+
+### Supplier Payments (`/supplier-payments`) — payable ledger
+
+Payments made to a supplier for a received batch. **Append-only** (no PUT/DELETE);
+the payable balance is derived:
+
+```
+total_cost(batch)     = batch.received_quantity * batch.unit_price
+returned_value(batch) = Σ supplier_return_items(quantity * unit_price)
+paid(batch)           = Σ supplier_payments.amount
+outstanding(batch)    = total_cost − returned_value − paid
+```
+
+Overpaying (amount > outstanding) is rejected with `400`. If returns make the
+balance negative, the result is a **supplier credit** (advance), and further
+payments are blocked until it is consumed.
+
+| Method | Path                                  | Auth                                     | Description                                                                 |
+| ------ | ------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
+| POST   | `/supplier-payments/`                 | `super_admin` / `admin` / `store_keeper` | Record a payment (`supplier_id`, `batch_id`, `amount`, `payment_date`, `payment_method?`, `reference?`, `note?`) — returns `201` |
+| GET    | `/supplier-payments/`                 | any authenticated user                   | List payments (paginated, optional `?batch_id=` / `?supplier_id=`)           |
+| GET    | `/supplier-payments/summary?batch_id=`| any authenticated user                   | Batch payable summary (`total_cost`, `returned_value`, `paid`, `outstanding`) |
+| GET    | `/supplier-payments/{id}`             | any authenticated user                   | Get a payment by ID                                                          |
+
+**Worked example** (200 qty @ 10 tk = 2000): pay 1800 → outstanding 200 → pay
+200 → outstanding 0 → return 20 (200 tk) → outstanding −200 (supplier credit).
+
 ---
 
 ## 🔒 Rate Limiting
@@ -357,7 +408,7 @@ uv run pytest -v
 python -m pytest -v
 ```
 
-Current coverage — **215 tests** across 11 files:
+Current coverage — **245 tests** across 13 files:
 
 - `tests/test_security.py` — password hashing, JWT encode/decode (valid, tampered, expired), cookie helpers
 - `tests/test_services_auth.py` — service-layer logic and role rules
@@ -370,6 +421,8 @@ Current coverage — **215 tests** across 11 files:
 - `tests/test_api_customer.py` — `/customers` endpoints + RBAC
 - `tests/test_api_supplier.py` — `/suppliers` endpoints + RBAC
 - `tests/test_api_stock_movement.py` — `/stock-movements` ledger: create in/out, overdraw rejection, reversal, immutability (405 on PUT/DELETE), RBAC
+- `tests/test_api_supplier_return.py` — `/supplier-returns`: partial returns, overdraw, wrong-supplier, multi-batch, RBAC, immutability
+- `tests/test_api_supplier_payment.py` — `/supplier-payments` payable ledger: partials, overpayment rejection, return-created credit, summary, RBAC, immutability
 
 ---
 
@@ -396,4 +449,8 @@ Current coverage — **215 tests** across 11 files:
   creation writes an origin `IN` entry, and later `in`/`out`/`adjustment`
   movements update the batch balance. Never delete or edit a movement — append
   a reversing entry instead (see Stock Movements above).
+- The **supplier payable** for a batch is derived from payments and returns
+  (`outstanding = total_cost − returned − paid`) and is **not** stored, so it
+  stays consistent automatically. Supplier returns lower what you owe; if the
+  balance goes negative it represents a credit/advance held with that supplier.
 

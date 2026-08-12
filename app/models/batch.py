@@ -48,3 +48,6 @@ class Batch(Base):
     supplier_return_items: Mapped[list["SupplierReturnItem"]] = relationship(
         "SupplierReturnItem", back_populates="batch"
     )
+    supplier_payments: Mapped[list["SupplierPayment"]] = relationship(
+        "SupplierPayment", back_populates="batch"
+    )
