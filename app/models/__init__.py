@@ -10,7 +10,7 @@ from app.models.user import Role, User
 from app.models.batch import Batch
 from app.models.stock_movement import StockMovement, MovementType
 from app.models.supplier_return import SupplierReturn, SupplierReturnItem, SupplierReturnStatus
-from app.models.supplier_payment import SupplierPayment
+from app.models.supplier_payment import PaymentType, SupplierPayment
 
 __all__ = [
     "Category",
@@ -27,5 +27,6 @@ __all__ = [
     "SupplierReturn",
     "SupplierReturnItem",
     "SupplierReturnStatus",
+    "PaymentType",
     "SupplierPayment",
 ]

@@ -3,6 +3,7 @@ from datetime import datetime, date
 
 from app.schemas.auth import UserMinimal
 from app.schemas.supplier import SupplierOut
+from app.models.supplier_payment import PaymentType
 
 
 class BatchMinimal(BaseModel):
@@ -17,7 +18,8 @@ class BatchMinimal(BaseModel):
 
 class SupplierPaymentCreate(BaseModel):
     supplier_id: int
-    batch_id: int
+    batch_id: int | None = None
+    payment_type: PaymentType = PaymentType.PAYMENT
     amount: float = Field(..., gt=0)
     payment_date: date
     payment_method: str | None = Field(None, max_length=50)
@@ -30,7 +32,8 @@ class SupplierPaymentCreate(BaseModel):
 class SupplierPaymentOut(BaseModel):
     id: int
     supplier_id: int
-    batch_id: int
+    batch_id: int | None
+    payment_type: PaymentType
     amount: float
     payment_date: date
     payment_method: str | None
@@ -64,3 +67,33 @@ class SupplierPayableSummary(BaseModel):
     outstanding: float
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BatchPayableBreakdown(BaseModel):
+    batch_id: int
+    total_cost: float
+    returned_value: float
+    paid: float
+    outstanding: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplierBalanceOut(BaseModel):
+    """Consolidated supplier-level account balance.
+
+    balance = total_received - total_returned - total_paid + total_collected
+    Positive -> we owe the supplier; negative -> the supplier owes us.
+    """
+
+    supplier_id: int
+    supplier_name: str | None = None
+    total_received: float
+    total_returned: float
+    total_paid: float
+    total_collected: float
+    balance: float
+    batches: list[BatchPayableBreakdown] = []
+
+    model_config = ConfigDict(from_attributes=True)
+

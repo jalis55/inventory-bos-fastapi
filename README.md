@@ -5,8 +5,8 @@ authentication (JWT access + refresh tokens), role-based access control (RBAC),
 user management, and full CRUD for companies, categories, products, product
 variants, customers, suppliers and batches. Stock is tracked through an
 **immutable, append-only stock-movement ledger** (bank-statement style), and
-**supplier returns** + a per-batch **supplier payable ledger** handle stock
-corrections and paying suppliers. Built on async SQLAlchemy + PostgreSQL.
+**supplier returns** + a **supplier account ledger** (payments & collections)
+handle stock corrections and paying suppliers. Built on async SQLAlchemy + PostgreSQL.
 
 ---
 
@@ -20,7 +20,7 @@ corrections and paying suppliers. Built on async SQLAlchemy + PostgreSQL.
 - 📦 **Batches** — received stock per product/supplier lot, with auto-calculated quantities
 - 📒 **Immutable stock-movement ledger** — every `in`/`out`/`adjustment` is a permanent, append-only entry with `prev_quantity` → `current_quantity` audit trail (bank-statement semantics; corrections are reversing entries, never edits)
 - ↩️ **Supplier returns** — return goods to a supplier from specific batches; atomically posts immutable `OUT` movements
-- 💸 **Supplier payable ledger** — immutable per-batch payments; `outstanding = total_cost − returned − paid`; overpayments rejected and supplier returns lower what you owe
+- 💸 **Supplier account ledger** — immutable `payment`/`collection` transactions with an optional batch link; balance = `received − returned − paid + collected`; a return-credit on one batch nets against dues on other batches of the same supplier, and a negative balance means the supplier owes you
 - 🚫 **Account lockout** after repeated failed logins (`MAX_LOGIN_ATTEMPTS`, `LOCKOUT_DURATION_MINUTES`)
 - 🗄️ **Async SQLAlchemy** with automatic table creation on startup + Alembic migrations
 - 🔒 **API rate limiting** (`slowapi`) on auth and password endpoints
@@ -342,31 +342,50 @@ edit/delete.
 Rules: each returned batch must belong to the return's supplier, and the
 returned quantity cannot exceed the batch's on-hand stock (rejected with `400`).
 
-### Supplier Payments (`/supplier-payments`) — payable ledger
+### Supplier Payments (`/supplier-payments`) — supplier account ledger
 
-Payments made to a supplier for a received batch. **Append-only** (no PUT/DELETE);
-the payable balance is derived:
+Cash transactions with a supplier, each classified by **`payment_type`**:
+- **`payment`** — money we pay *to* a supplier (reduces what we owe).
+- **`collection`** — money we receive *back* from a supplier (refund / settling a credit the supplier owes us).
+
+Transactions are **append-only** (no PUT/DELETE). `batch_id` is **optional**, so
+a transaction can be recorded at the supplier level without being tied to one
+batch. The running balance is derived — never stored:
 
 ```
-total_cost(batch)     = batch.received_quantity * batch.unit_price
-returned_value(batch) = Σ supplier_return_items(quantity * unit_price)
-paid(batch)           = Σ supplier_payments.amount
-outstanding(batch)    = total_cost − returned_value − paid
+total_received  = Σ batches(supplier).received_quantity * unit_price
+total_returned  = Σ supplier_return_items(quantity * unit_price)
+total_paid      = Σ payments.amount        (payment_type = payment)
+total_collected = Σ payments.amount        (payment_type = collection)
+balance = total_received − total_returned − total_paid + total_collected
 ```
 
-Overpaying (amount > outstanding) is rejected with `400`. If returns make the
-balance negative, the result is a **supplier credit** (advance), and further
-payments are blocked until it is consumed.
+`balance > 0` → we owe the supplier; `balance < 0` → **the supplier owes us**
+(credit). Because validation happens at the **supplier level**, a credit created
+by a return on one batch automatically offsets the dues of *another* batch of
+the same supplier. A `payment` is rejected when `balance <= 0` (or if it would
+overpay the balance); a `collection` is only allowed when the balance is
+negative (a credit) and can't exceed that credit.
 
-| Method | Path                                  | Auth                                     | Description                                                                 |
-| ------ | ------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
-| POST   | `/supplier-payments/`                 | `super_admin` / `admin` / `store_keeper` | Record a payment (`supplier_id`, `batch_id`, `amount`, `payment_date`, `payment_method?`, `reference?`, `note?`) — returns `201` |
-| GET    | `/supplier-payments/`                 | any authenticated user                   | List payments (paginated, optional `?batch_id=` / `?supplier_id=`)           |
-| GET    | `/supplier-payments/summary?batch_id=`| any authenticated user                   | Batch payable summary (`total_cost`, `returned_value`, `paid`, `outstanding`) |
-| GET    | `/supplier-payments/{id}`             | any authenticated user                   | Get a payment by ID                                                          |
+| Method | Path                                   | Auth                                     | Description                                                                 |
+| ------ | -------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
+| POST   | `/supplier-payments/`                  | `super_admin` / `admin` / `store_keeper` | Record a transaction (`supplier_id`, `batch_id?`, `payment_type?`, `amount`, `payment_date`, `payment_method?`, `reference?`, `note?`) — returns `201` |
+| GET    | `/supplier-payments/`                  | any authenticated user                   | List transactions (paginated, optional `?batch_id=` / `?supplier_id=`)       |
+| GET    | `/supplier-payments/summary?batch_id=` | any authenticated user                   | Per-batch breakdown (`total_cost`, `returned_value`, `paid`, `outstanding`)  |
+| GET    | `/supplier-payments/balance?supplier_id=` | any authenticated user                | Consolidated supplier-level balance + per-batch detail (`total_received`, `total_returned`, `total_paid`, `total_collected`, `balance`) |
+| GET    | `/supplier-payments/{id}`              | any authenticated user                   | Get a transaction by ID                                                      |
 
-**Worked example** (200 qty @ 10 tk = 2000): pay 1800 → outstanding 200 → pay
-200 → outstanding 0 → return 20 (200 tk) → outstanding −200 (supplier credit).
+**Worked example (same supplier, batches net together):**
+
+- batch-1: 10 @ 10 = **100**, paid **100** → 0
+- batch-2: 20 @ 4 = **80**, paid **40**
+- batch-3: 5 @ 50 = **250**, paid **250** → 0
+- Return **10** from batch-2 (10 @ 4 = 40) → balance = 100+80+250 − 390 − 40 = **0**
+- Return **2** from batch-3 (2 @ 50 = 100) → balance = −**100** → **the supplier owes us 100**
+- `collection` **100** → balance = **0** (supplier credit settled)
+
+Because the balance nets across all batches, the batch-3 return credit directly
+reduces the batch-2 dues — exactly the “dues from supplier” behaviour.
 
 ---
 
@@ -408,7 +427,7 @@ uv run pytest -v
 python -m pytest -v
 ```
 
-Current coverage — **245 tests** across 13 files:
+Current coverage — **254 tests** across 13 files:
 
 - `tests/test_security.py` — password hashing, JWT encode/decode (valid, tampered, expired), cookie helpers
 - `tests/test_services_auth.py` — service-layer logic and role rules
@@ -422,7 +441,7 @@ Current coverage — **245 tests** across 13 files:
 - `tests/test_api_supplier.py` — `/suppliers` endpoints + RBAC
 - `tests/test_api_stock_movement.py` — `/stock-movements` ledger: create in/out, overdraw rejection, reversal, immutability (405 on PUT/DELETE), RBAC
 - `tests/test_api_supplier_return.py` — `/supplier-returns`: partial returns, overdraw, wrong-supplier, multi-batch, RBAC, immutability
-- `tests/test_api_supplier_payment.py` — `/supplier-payments` payable ledger: partials, overpayment rejection, return-created credit, summary, RBAC, immutability
+- `tests/test_api_supplier_payment.py` — `/supplier-payments` account ledger: payment/collection types, supplier-level netting across batches, return-created credit, over-payment / over-collection rejection, supplier-level payment without a batch, balance & per-batch breakdown, RBAC, immutability
 
 ---
 
@@ -449,8 +468,10 @@ Current coverage — **245 tests** across 13 files:
   creation writes an origin `IN` entry, and later `in`/`out`/`adjustment`
   movements update the batch balance. Never delete or edit a movement — append
   a reversing entry instead (see Stock Movements above).
-- The **supplier payable** for a batch is derived from payments and returns
-  (`outstanding = total_cost − returned − paid`) and is **not** stored, so it
-  stays consistent automatically. Supplier returns lower what you owe; if the
-  balance goes negative it represents a credit/advance held with that supplier.
+- The **supplier balance** is derived from batches, returns and cash
+  transactions (`balance = received − returned − paid + collected`) and is
+  **not** stored, so it stays consistent automatically. It nets across all of a
+  supplier's batches: a return-credit on one batch offsets dues on another.
+  Positive balance = we owe the supplier; negative balance = the supplier owes
+  us (a credit, settleable with a `collection`).
 
