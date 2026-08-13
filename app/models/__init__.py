@@ -11,6 +11,9 @@ from app.models.batch import Batch
 from app.models.stock_movement import StockMovement, MovementType
 from app.models.supplier_return import SupplierReturn, SupplierReturnItem, SupplierReturnStatus
 from app.models.supplier_payment import PaymentType, SupplierPayment
+from app.models.customer_sell import CustomerSell, CustomerSellItem, CustomerSellStatus
+from app.models.customer_return import CustomerReturn, CustomerReturnItem, CustomerReturnStatus
+from app.models.customer_payment import CustomerPaymentType, CustomerPayment
 
 __all__ = [
     "Category",
@@ -29,4 +32,12 @@ __all__ = [
     "SupplierReturnStatus",
     "PaymentType",
     "SupplierPayment",
+    "CustomerSell",
+    "CustomerSellItem",
+    "CustomerSellStatus",
+    "CustomerReturn",
+    "CustomerReturnItem",
+    "CustomerReturnStatus",
+    "CustomerPaymentType",
+    "CustomerPayment",
 ]

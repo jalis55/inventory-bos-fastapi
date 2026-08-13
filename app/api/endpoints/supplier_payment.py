@@ -33,9 +33,14 @@ def _load_options():
         selectinload(SupplierPayment.user),
     )
 
-
 async def _payable_components(db: AsyncSession, batch: Batch) -> dict:
-    """total_cost, returned_value, paid for a batch."""
+    """total_cost, returned_value, paid, collected and outstanding for a batch.
+
+    outstanding = total_cost - returned_value - paid + collected
+    Positive  → we still owe the supplier for this batch
+    Negative  → the supplier owes us a credit on this batch
+    Zero      → batch is fully settled
+    """
     total_cost = batch.received_quantity * batch.unit_price
 
     returned_value = (
@@ -56,13 +61,23 @@ async def _payable_components(db: AsyncSession, batch: Batch) -> dict:
         )
     ).scalar_one()
 
+    collected = (
+        await db.execute(
+            select(func.coalesce(func.sum(SupplierPayment.amount), 0)).where(
+                SupplierPayment.batch_id == batch.id,
+                SupplierPayment.payment_type == PaymentType.COLLECTION,
+            )
+        )
+    ).scalar_one()
+
+    outstanding = total_cost - returned_value - paid + collected
+
     return {
         "total_cost": total_cost,
         "returned_value": returned_value,
         "paid": paid,
-        "outstanding": total_cost - returned_value - paid,
+        "outstanding": outstanding,
     }
-
 
 async def _supplier_aggregates(db: AsyncSession, supplier_id: int) -> dict:
     """Supplier-level totals: received, returned, paid, collected and balance.
@@ -214,6 +229,7 @@ async def get_supplier_payment(
     return payment
 
 
+
 @router.post("/", response_model=SupplierPaymentOut, status_code=status.HTTP_201_CREATED)
 async def create_supplier_payment(
     payload: SupplierPaymentCreate,
@@ -222,16 +238,18 @@ async def create_supplier_payment(
 ):
     """Record a supplier cash transaction (payment or collection).
 
-    Payments are validated against the *supplier-level* balance, so a credit
-    created by a return on one batch can offset dues on another batch of the
-    same supplier. ``batch_id`` is optional.
+    When ``batch_id`` is supplied the amount is validated against that
+    batch's own outstanding. This allows settling one batch fully even
+    when other batches of the same supplier have credits (or vice-versa).
     """
+    # --- supplier exists? ---
     supplier_result = await db.execute(
         select(Supplier).where(Supplier.id == payload.supplier_id)
     )
     if not supplier_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Supplier not found")
 
+    # --- batch exists & belongs to supplier? ---
     batch = None
     if payload.batch_id is not None:
         batch_result = await db.execute(
@@ -246,44 +264,85 @@ async def create_supplier_payment(
                 detail="Batch does not belong to the payment supplier",
             )
 
-    aggregates = await _supplier_aggregates(db, payload.supplier_id)
-    balance = aggregates["balance"]
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+    if payload.batch_id is not None:
+        # Per-batch rules (the path used by the UI)
+        components = await _payable_components(db, batch)
+        outstanding = components["outstanding"]
 
-    if payload.payment_type == PaymentType.PAYMENT:
-        if balance <= 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Cannot pay: supplier balance {balance:.2f} "
-                    "(the supplier owes you)."
-                ),
-            )
-        if payload.amount > balance:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Overpayment rejected: outstanding {balance:.2f}, "
-                    f"attempted {payload.amount:.2f}"
-                ),
-            )
-    else:  # COLLECTION
-        if balance >= 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "Cannot collect: the supplier has no outstanding credit "
-                    "with you."
-                ),
-            )
-        if payload.amount > -balance:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Over-collection rejected: supplier credit {-balance:.2f}, "
-                    f"attempted {payload.amount:.2f}"
-                ),
-            )
+        if payload.payment_type == PaymentType.PAYMENT:
+            if outstanding <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This batch has no outstanding amount to pay.",
+                )
+            if payload.amount > outstanding:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Overpayment rejected: batch outstanding {outstanding:.2f}, "
+                        f"attempted {payload.amount:.2f}"
+                    ),
+                )
+        else:  # COLLECTION
+            if outstanding >= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This batch has no credit to collect.",
+                )
+            if payload.amount > -outstanding:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Over-collection rejected: batch credit {-outstanding:.2f}, "
+                        f"attempted {payload.amount:.2f}"
+                    ),
+                )
+    else:
+        # Supplier-level payment (no batch) – keep net-balance rules
+        aggregates = await _supplier_aggregates(db, payload.supplier_id)
+        balance = aggregates["balance"]
 
+        if payload.payment_type == PaymentType.PAYMENT:
+            if balance <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Cannot pay: supplier balance {balance:.2f} "
+                        "(the supplier owes you)."
+                    ),
+                )
+            if payload.amount > balance:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Overpayment rejected: outstanding {balance:.2f}, "
+                        f"attempted {payload.amount:.2f}"
+                    ),
+                )
+        else:  # COLLECTION
+            if balance >= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Cannot collect: the supplier has no outstanding credit "
+                        "with you."
+                    ),
+                )
+            if payload.amount > -balance:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Over-collection rejected: supplier credit {-balance:.2f}, "
+                        f"attempted {payload.amount:.2f}"
+                    ),
+                )
+
+    # ------------------------------------------------------------------
+    # Persist (flush first so the PK is generated, then commit)
+    # ------------------------------------------------------------------
     payment = SupplierPayment(
         supplier_id=payload.supplier_id,
         batch_id=payload.batch_id,
@@ -296,11 +355,20 @@ async def create_supplier_payment(
         created_by=current_user.id,
     )
     db.add(payment)
+    await db.flush()          # generates payment.id
     await db.commit()
 
+    # Re-load with relationships so the response model is complete
     result = await db.execute(
         select(SupplierPayment)
         .options(*_load_options())
         .where(SupplierPayment.id == payment.id)
     )
-    return result.scalar_one()
+    created = result.scalar_one_or_none()
+    if created is None:
+        # Extremely defensive – should never happen after a successful flush/commit
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Payment was created but could not be reloaded",
+        )
+    return created

@@ -14,6 +14,9 @@ from app.models.user import User
 from app.models.stock_movement import StockMovement
 from app.models.supplier_return import SupplierReturn, SupplierReturnItem
 from app.models.supplier_payment import SupplierPayment
+from app.models.customer_sell import CustomerSell, CustomerSellItem
+from app.models.customer_return import CustomerReturn, CustomerReturnItem
+from app.models.customer_payment import CustomerPayment
 from alembic import context
 from app.core.config import settings
 

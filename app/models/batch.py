@@ -51,3 +51,12 @@ class Batch(Base):
     supplier_payments: Mapped[list["SupplierPayment"]] = relationship(
         "SupplierPayment", back_populates="batch"
     )
+    customer_sell_items: Mapped[list["CustomerSellItem"]] = relationship(
+        "CustomerSellItem", back_populates="batch"
+    )
+    customer_return_items: Mapped[list["CustomerReturnItem"]] = relationship(
+        "CustomerReturnItem", back_populates="batch"
+    )
+    customer_payments: Mapped[list["CustomerPayment"]] = relationship(
+        "CustomerPayment", back_populates="batch"
+    )

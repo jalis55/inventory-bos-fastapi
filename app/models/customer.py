@@ -36,3 +36,13 @@ class Customer(Base):
     stock_movements: Mapped[list["StockMovement"]] = relationship(
         "StockMovement", back_populates="customer"
     )
+
+    customer_sells: Mapped[list["CustomerSell"]] = relationship(
+        "CustomerSell", back_populates="customer"
+    )
+    customer_returns: Mapped[list["CustomerReturn"]] = relationship(
+        "CustomerReturn", back_populates="customer"
+    )
+    customer_payments: Mapped[list["CustomerPayment"]] = relationship(
+        "CustomerPayment", back_populates="customer"
+    )
