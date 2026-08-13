@@ -13,6 +13,7 @@ from app.schemas.supplier import (
     PaginatedSuppliers,
 )
 from app.api.deps import get_current_user, require_superadmin_and_admin
+from sqlalchemy import select, func, or_
 
 
 router = APIRouter(prefix="/suppliers", tags=["Suppliers"])
@@ -24,12 +25,28 @@ async def list_suppliers(
     _: User = Depends(get_current_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None, description="Search by name or phone"),
+    is_active: bool | None = Query(None, description="Filter by active status"),
 ):
-    total = (await db.execute(select(func.count()).select_from(Supplier))).scalar_one()
+    filters = []
+    if search:
+        filters.append(
+            or_(
+                Supplier.name.ilike(f"%{search}%"),
+                Supplier.phone.ilike(f"%{search}%"),
+            )
+        )
+    if is_active is not None:
+        filters.append(Supplier.is_active == is_active)
+
+    total = (
+        await db.execute(select(func.count()).select_from(Supplier).where(*filters))
+    ).scalar_one()
 
     result = await db.execute(
         select(Supplier)
         .options(selectinload(Supplier.user))
+        .where(*filters)
         .order_by(Supplier.id)
         .offset(skip)
         .limit(limit)

@@ -24,8 +24,27 @@ async def list_products(
     _: User = Depends(get_current_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None, description="Search by name"),
+    is_active: bool | None = Query(None, description="Filter by active status"),
+    company_id: int | None = Query(None, description="Filter by company"),
+    category_id: int | None = Query(None, description="Filter by category"),
+    product_variant_id: int | None = Query(None, description="Filter by variant"),
 ):
-    total = (await db.execute(select(func.count()).select_from(Product))).scalar_one()
+    filters = []
+    if search:
+        filters.append(Product.name.ilike(f"%{search}%"))
+    if is_active is not None:
+        filters.append(Product.is_active == is_active)
+    if company_id is not None:
+        filters.append(Product.company_id == company_id)
+    if category_id is not None:
+        filters.append(Product.category_id == category_id)
+    if product_variant_id is not None:
+        filters.append(Product.product_variant_id == product_variant_id)
+
+    total = (
+        await db.execute(select(func.count()).select_from(Product).where(*filters))
+    ).scalar_one()
 
     result = await db.execute(
         select(Product)
@@ -34,6 +53,7 @@ async def list_products(
             selectinload(Product.category),
             selectinload(Product.product_variant),
         )
+        .where(*filters)
         .order_by(Product.id)
         .offset(skip)
         .limit(limit)

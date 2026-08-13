@@ -21,10 +21,17 @@ async def list_categories(
     _:User=Depends(get_current_user),
     skip:int=Query(0,ge=0,description="Number of records to skip"),
     limit:int=Query(20,ge=1,le=100,description="Max records to return"),
+    search:str|None=Query(None,description="Search by name"),
+    is_active:bool|None=Query(None,description="Filter by active status"),
 ):
-    total=(await db.execute(select(func.count()).select_from(Category))).scalar_one()
+    filters=[]
+    if search:
+        filters.append(Category.name.ilike(f"%{search}%"))
+    if is_active is not None:
+        filters.append(Category.is_active==is_active)
+    total=(await db.execute(select(func.count()).select_from(Category).where(*filters))).scalar_one()
     result=await db.execute(
-        select(Category).order_by(Category.id).offset(skip).limit(limit)
+        select(Category).where(*filters).order_by(Category.id).offset(skip).limit(limit)
     )
     categories=result.scalars().all()
     return PaginatedCategories(total=total,skip=skip,limit=limit,items=categories)

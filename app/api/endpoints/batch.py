@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.db.database import get_db
 from app.models.user import User
 from app.models.batch import Batch
+from app.models.product import Product
 from app.models.stock_movement import StockMovement, MovementType
 from app.schemas.batch import (
     BatchCreate,
@@ -25,11 +26,36 @@ async def list_batches(
     _: User = Depends(get_current_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None, description="Search by batch number or product name"),
+    is_active: bool | None = Query(None, description="Filter by active status"),
+    product_id: int | None = Query(None, description="Filter by product"),
+    supplier_id: int | None = Query(None, description="Filter by supplier"),
 ):
-    total = (await db.execute(select(func.count()).select_from(Batch))).scalar_one()
+    # Search joins the product table so we can match either batch number or
+    # product name; FK + status filters are simple equality clauses.
+    stmt = select(Batch)
+    if search:
+        stmt = stmt.join(Product, Batch.product_id == Product.id).where(
+            or_(
+                Batch.batch_number.ilike(f"%{search}%"),
+                Product.name.ilike(f"%{search}%"),
+            )
+        )
+
+    filters = []
+    if is_active is not None:
+        filters.append(Batch.is_active == is_active)
+    if product_id is not None:
+        filters.append(Batch.product_id == product_id)
+    if supplier_id is not None:
+        filters.append(Batch.supplier_id == supplier_id)
+
+    total = (
+        await db.execute(select(func.count()).select_from(stmt.subquery()))
+    ).scalar_one()
 
     result = await db.execute(
-        select(Batch)
+        stmt.where(*filters)
         .options(
             selectinload(Batch.product),
             selectinload(Batch.supplier),

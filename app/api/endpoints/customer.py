@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.db.database import get_db
 from app.models.user import User
-from app.models.customer import Customer
+from app.models.customer import Customer, CustomerType
 from app.schemas.customer import (
     CustomerCreate,
     CustomerUpdate,
@@ -24,12 +24,31 @@ async def list_customers(
     _: User = Depends(get_current_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None, description="Search by name or phone"),
+    is_active: bool | None = Query(None, description="Filter by active status"),
+    customer_type: CustomerType | None = Query(None, description="Filter by type"),
 ):
-    total = (await db.execute(select(func.count()).select_from(Customer))).scalar_one()
+    filters = []
+    if search:
+        filters.append(
+            or_(
+                Customer.name.ilike(f"%{search}%"),
+                Customer.phone.ilike(f"%{search}%"),
+            )
+        )
+    if is_active is not None:
+        filters.append(Customer.is_active == is_active)
+    if customer_type is not None:
+        filters.append(Customer.customer_type == customer_type)
+
+    total = (
+        await db.execute(select(func.count()).select_from(Customer).where(*filters))
+    ).scalar_one()
 
     result = await db.execute(
         select(Customer)
         .options(selectinload(Customer.user))
+        .where(*filters)
         .order_by(Customer.id)
         .offset(skip)
         .limit(limit)

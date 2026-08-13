@@ -450,6 +450,18 @@ Current coverage — **254 tests** across 13 files:
 - **Pydantic validation error on startup (missing fields)** — the app reads `.env`
   from the current working directory. Start it from the `inventory-bos` folder or
   ensure the variables are exported in your environment.
+- **`GET /auth/me` (and `/auth/refresh`) returns 401 right after a successful
+  login** — the dashboard calls this API at `http://localhost:8000` while the
+  app is served at `http://localhost:5173`. Keep BOTH on the host `localhost`
+  (the port differs, but browsers treat them as same-site, so the httpOnly
+  `SameSite=Lax` cookies attach). Never mix `localhost` (app) with
+  `127.0.0.1` (API) — that is cross-site and every request 401s. Also make sure
+  `http://localhost:5173` is listed in `app/main.py` `allow_origins` with
+  `allow_credentials=True` (a wildcard `"*"` is rejected for credentialed
+  requests).
+- **CORS preflight failures** — add your calling origin (e.g.
+  `http://localhost:5173`, `http://127.0.0.1:5173`) to `allow_origins` in
+  `app/main.py` and restart uvicorn.
 
 ---
 
