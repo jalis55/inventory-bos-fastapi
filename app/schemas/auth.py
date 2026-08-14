@@ -109,11 +109,3 @@ class TokenData(BaseModel):
     email: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class UserMinimal(BaseModel):
-    id: int
-    full_name: str | None
-    email: EmailStr
-
-    model_config = ConfigDict(from_attributes=True)

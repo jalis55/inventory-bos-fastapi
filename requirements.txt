@@ -11,6 +11,7 @@ asyncpg
 psycopg2
 alembic
 slowapi
+art
 
 # Testing
 pytest

@@ -3,20 +3,7 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from app.db.base import Base
-from app.models.category import Category
-from app.models.company import Company
-from app.models.product import Product
-from app.models.batch import Batch
-from app.models.supplier import Supplier
-from app.models.customer import Customer 
-from app.models.product_variant import ProductVariant
 from app.models.user import User
-from app.models.stock_movement import StockMovement
-from app.models.supplier_return import SupplierReturn, SupplierReturnItem
-from app.models.supplier_payment import SupplierPayment
-from app.models.customer_sell import CustomerSell, CustomerSellItem
-from app.models.customer_return import CustomerReturn, CustomerReturnItem
-from app.models.customer_payment import CustomerPayment
 from alembic import context
 from app.core.config import settings
 

@@ -1,7 +1,6 @@
-
 from sqlalchemy import String, Boolean, DateTime, Integer, func
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.orm import Mapped, mapped_column,relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
 from enum import Enum
 from app.db.base import Base
@@ -33,44 +32,3 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-
-
-    #Relationships
-
-    customers: Mapped[list["Customer"]] = relationship(
-        "Customer", back_populates="user"
-    )
-
-    suppliers: Mapped[list["Supplier"]] = relationship(
-        "Supplier", back_populates="user"
-    )
-
-    batches: Mapped[list["Batch"]] = relationship(
-        "Batch", back_populates="user"
-    )
-
-    stock_movements: Mapped[list["StockMovement"]] = relationship(
-        "StockMovement", back_populates="user"
-    )
-
-    supplier_returns: Mapped[list["SupplierReturn"]] = relationship(
-        "SupplierReturn", back_populates="user"
-    )
-
-    supplier_payments: Mapped[list["SupplierPayment"]] = relationship(
-        "SupplierPayment", back_populates="user"
-    )
-
-    customer_sells: Mapped[list["CustomerSell"]] = relationship(
-        "CustomerSell", back_populates="user"
-    )
-
-    customer_returns: Mapped[list["CustomerReturn"]] = relationship(
-        "CustomerReturn", back_populates="user"
-    )
-
-    customer_payments: Mapped[list["CustomerPayment"]] = relationship(
-        "CustomerPayment", back_populates="user"
-    )
-
-    batches: Mapped[list["Batch"]] = relationship("Batch", back_populates="user")
