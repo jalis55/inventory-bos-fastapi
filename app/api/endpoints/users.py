@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.db.database import get_db
 from app.core.config import settings
-from app.core.limiter import limiter
 from app.models.user import User, Role
 from app.schemas.auth import UserOut, UserUpdate, PasswordReset, PaginatedUsers
 from app.api.deps import require_admin, require_superadmin, get_current_user, require_roles
@@ -39,14 +38,13 @@ async def get_user(
 ):
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user:
+        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
 @router.post("/change-password")
-@limiter.limit("10/minute")
 async def change_password(
-    request: Request,
     request_body: PasswordReset,
     db: AsyncSession = Depends(get_db),  # ✅ AsyncSession
     current_user: User = Depends(get_current_user)
@@ -81,14 +79,7 @@ async def update_user(
 ):
     """Update user details"""
 
-    # 1. Caller-level permission check FIRST (prevents user-ID enumeration)
-    if current_user.role not in [Role.SUPER_ADMIN, Role.ADMIN]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only super admin and admin can update users"
-        )
-
-    # 2. Look up the target user
+    # Get user to update
     result = await db.execute(select(User).where(User.id == user_id))
     user_to_update = result.scalar_one_or_none()
 
@@ -98,7 +89,12 @@ async def update_user(
             detail="User not found"
         )
 
-    # Target-specific permission checks
+    # Permission checks
+    if current_user.role not in [Role.SUPER_ADMIN, Role.ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admin and admin can update users"
+        )
 
     if user_to_update.id == current_user.id:
         raise HTTPException(
@@ -148,9 +144,7 @@ async def update_user(
 
 
 @router.post("/reset-password")
-@limiter.limit("10/minute")
 async def reset_password(
-    request: Request,
     email: EmailStr,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
