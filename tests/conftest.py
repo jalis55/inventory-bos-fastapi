@@ -20,11 +20,33 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from app.core.limiter import limiter
 from app.db.base import Base
 from app.db.database import get_db
 from app.main import app
+from app.models.brand import Brand
+from app.models.category import Category
 from app.models.user import Role, User
 from app.utils.security import create_access_token, hash_password
+
+
+# Password that satisfies the app's strong-password policy:
+# >=8 chars, at least one uppercase, one lowercase, one digit, one special char.
+TEST_PASSWORD = "Password123!"
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """
+    Reset the SlowAPI in-memory request counters before/after every test.
+
+    The endpoints /auth/register, /auth/login and /auth/refresh carry rate
+    limits (e.g. 5/minute). Without this, login attempts from different tests
+    would accumulate against the same in-memory counter and produce flaky 429s.
+    """
+    limiter.reset()
+    yield
+    limiter.reset()
 
 
 @pytest_asyncio.fixture
@@ -127,3 +149,31 @@ def auth_headers():
         return {"Authorization": f"Bearer {token}"}
 
     return _make_headers
+
+
+@pytest_asyncio.fixture
+async def create_brand(db_session):
+    """Factory that persists a brand directly (skipping the API)."""
+
+    async def _factory(name: str, is_active: bool = True) -> Brand:
+        brand = Brand(name=name, is_active=is_active)
+        db_session.add(brand)
+        await db_session.commit()
+        await db_session.refresh(brand)
+        return brand
+
+    return _factory
+
+
+@pytest_asyncio.fixture
+async def create_category(db_session):
+    """Factory that persists a category directly (skipping the API)."""
+
+    async def _factory(name: str, is_active: bool = True) -> Category:
+        category = Category(name=name, is_active=is_active)
+        db_session.add(category)
+        await db_session.commit()
+        await db_session.refresh(category)
+        return category
+
+    return _factory

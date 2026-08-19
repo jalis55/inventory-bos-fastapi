@@ -10,20 +10,21 @@ from app.services.auth import get_user_by_email
 # Create security scheme for Bearer token
 security = HTTPBearer(auto_error=False)
 
+
 async def get_current_user(
-    request: Request, 
+    request: Request,
     db: AsyncSession = Depends(get_db),
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> User:
     token = None
-    
+
     # First try to get token from cookie
     token = request.cookies.get(settings.ACCESS_COOKIE_NAME)
-    
+
     # If no cookie, try Bearer token
     if not token and credentials:
         token = credentials.credentials
-    
+
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -43,9 +44,11 @@ async def get_current_user(
 
     user = await get_user_by_email(db, email)
     if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="User not found or inactive")
+        raise HTTPException(
+            status_code=401, detail="User not found or inactive")
 
     return user
+
 
 def require_roles(*allowed_roles: str):
     async def role_checker(current_user: User = Depends(get_current_user)) -> User:
@@ -58,8 +61,10 @@ def require_roles(*allowed_roles: str):
     return role_checker
 
 
-
-
 # Convenience shortcuts
 require_superadmin = require_roles("super_admin")
-require_admin = require_roles("super_admin", "admin")
+require_admin = require_roles("admin")
+require_superadmin_or_admin = require_roles("super_admin", "admin")
+require_superadmin_or_admin_or_storekeeper = require_roles("super_admin", "admin", "store_keeper")
+require_storekeeper = require_roles("store_keeper")
+

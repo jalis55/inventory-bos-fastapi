@@ -6,6 +6,7 @@ import pytest
 from app.core.config import settings
 from app.models.user import Role
 from app.utils.security import create_refresh_token
+from tests.conftest import TEST_PASSWORD
 
 
 # --------------------------------------------------------------------------- #
@@ -15,7 +16,7 @@ from app.utils.security import create_refresh_token
 async def test_register_creates_user(client, super_admin_user, auth_headers):
     payload = {
         "email": "newuser@example.com",
-        "password": "password123",
+        "password": TEST_PASSWORD,
         "full_name": "New User",
         "role": "admin",
     }
@@ -28,7 +29,7 @@ async def test_register_creates_user(client, super_admin_user, auth_headers):
 
 @pytest.mark.asyncio
 async def test_register_requires_authentication(client):
-    payload = {"email": "anon@example.com", "password": "password123", "role": "seller"}
+    payload = {"email": "anon@example.com", "password": TEST_PASSWORD, "role": "seller"}
     resp = await client.post("/auth/register", json=payload)
     assert resp.status_code == 401
 
@@ -36,7 +37,7 @@ async def test_register_requires_authentication(client):
 @pytest.mark.asyncio
 async def test_register_duplicate_email(client, super_admin_user, auth_headers, create_user):
     await create_user("dup@example.com", role=Role.SELLER)
-    payload = {"email": "dup@example.com", "password": "password123", "role": "seller"}
+    payload = {"email": "dup@example.com", "password": TEST_PASSWORD, "role": "seller"}
     resp = await client.post("/auth/register", json=payload, headers=auth_headers(super_admin_user))
     assert resp.status_code == 400
 

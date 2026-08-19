@@ -5,6 +5,7 @@ import pytest
 
 from app.core.config import settings
 from app.models.user import Role
+from tests.conftest import TEST_PASSWORD
 
 
 # --------------------------------------------------------------------------- #
@@ -17,8 +18,10 @@ async def test_list_users_admin(client, admin_user, auth_headers, create_user):
     assert resp.status_code == 200
     data = resp.json()
     emails = [u["email"] for u in data["items"]]
+    # Admins can see non-admin users...
     assert "someone@example.com" in emails
-    assert admin_user.email in emails
+    # ...but the list is filtered to exclude admins and super admins.
+    assert admin_user.email not in emails
 
 
 @pytest.mark.asyncio
@@ -54,7 +57,7 @@ async def test_change_password_success(client, seller_user, auth_headers):
         json={
             "email": seller_user.email,
             "old_password": "password123",
-            "new_password": "newpassword123",
+            "new_password": "NewPassword123!",
         },
         headers=auth_headers(seller_user),
     )
@@ -68,8 +71,8 @@ async def test_change_password_wrong_old_password(client, seller_user, auth_head
         "/users/change-password",
         json={
             "email": seller_user.email,
-            "old_password": "wrong-old",
-            "new_password": "newpassword123",
+            "old_password": "wrong-old-pass",
+            "new_password": "NewPassword123!",
         },
         headers=auth_headers(seller_user),
     )

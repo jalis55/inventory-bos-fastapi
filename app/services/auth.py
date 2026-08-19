@@ -89,16 +89,23 @@ async def authenticate_user(db: AsyncSession, email: str, password: str) -> User
 
     now = datetime.now(timezone.utc)
 
+    # SQLite (used by the test-suite / dev) stores naive datetimes even for
+    # ``DateTime(timezone=True)`` columns, while PostgreSQL returns aware ones.
+    # Normalise so the lockout comparison works on both backends.
+    locked_until = user.locked_until
+    if locked_until is not None and locked_until.tzinfo is None:
+        locked_until = locked_until.replace(tzinfo=timezone.utc)
+
     # Currently locked out
-    if user.locked_until and user.locked_until > now:
-        remaining_minutes = int((user.locked_until - now).total_seconds() // 60) + 1
+    if locked_until and locked_until > now:
+        remaining_minutes = int((locked_until - now).total_seconds() // 60) + 1
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
             detail=f"Account locked due to failed login attempts. Try again in {remaining_minutes} minute(s)."
         )
 
     # Lock has expired naturally — reset before evaluating this attempt
-    if user.locked_until and user.locked_until <= now:
+    if locked_until and locked_until <= now:
         user.failed_login_attempts = 0
         user.locked_until = None
 

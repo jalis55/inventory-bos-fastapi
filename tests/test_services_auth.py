@@ -15,6 +15,7 @@ from app.services.auth import (
     create_user as create_user_service,
     get_user_by_email,
 )
+from tests.conftest import TEST_PASSWORD
 
 
 # --------------------------------------------------------------------------- #
@@ -39,7 +40,7 @@ async def test_get_user_by_email_missing(db_session):
 @pytest.mark.asyncio
 async def test_create_user_super_admin_creates_admin(db_session, super_admin_user):
     user_in = UserCreate(
-        email="newadmin@example.com", password="password123",
+        email="newadmin@example.com", password=TEST_PASSWORD,
         full_name="New Admin", role=Role.ADMIN,
     )
     created = await create_user_service(db_session, user_in, super_admin_user)
@@ -51,7 +52,7 @@ async def test_create_user_super_admin_creates_admin(db_session, super_admin_use
 @pytest.mark.asyncio
 async def test_create_user_admin_creates_store_keeper(db_session, admin_user):
     user_in = UserCreate(
-        email="keeper@x.com", password="password123", role=Role.STORE_KEEPER,
+        email="keeper@x.com", password=TEST_PASSWORD, role=Role.STORE_KEEPER,
     )
     created = await create_user_service(db_session, user_in, admin_user)
     assert created.role == Role.STORE_KEEPER
@@ -60,7 +61,7 @@ async def test_create_user_admin_creates_store_keeper(db_session, admin_user):
 @pytest.mark.asyncio
 async def test_create_user_duplicate_email(db_session, super_admin_user, create_user):
     await create_user("dup@example.com", role=Role.SELLER)
-    user_in = UserCreate(email="dup@example.com", password="password123", role=Role.SELLER)
+    user_in = UserCreate(email="dup@example.com", password=TEST_PASSWORD, role=Role.SELLER)
     with pytest.raises(HTTPException) as exc:
         await create_user_service(db_session, user_in, super_admin_user)
     assert exc.value.status_code == 400
@@ -68,7 +69,7 @@ async def test_create_user_duplicate_email(db_session, super_admin_user, create_
 
 @pytest.mark.asyncio
 async def test_create_user_super_admin_cannot_create_super_admin(db_session, super_admin_user):
-    user_in = UserCreate(email="sa@example.com", password="password123", role=Role.SUPER_ADMIN)
+    user_in = UserCreate(email="sa@example.com", password=TEST_PASSWORD, role=Role.SUPER_ADMIN)
     with pytest.raises(HTTPException) as exc:
         await create_user_service(db_session, user_in, super_admin_user)
     assert exc.value.status_code == 403
@@ -76,7 +77,7 @@ async def test_create_user_super_admin_cannot_create_super_admin(db_session, sup
 
 @pytest.mark.asyncio
 async def test_create_user_admin_cannot_create_admin(db_session, admin_user):
-    user_in = UserCreate(email="other@example.com", password="password123", role=Role.ADMIN)
+    user_in = UserCreate(email="other@example.com", password=TEST_PASSWORD, role=Role.ADMIN)
     with pytest.raises(HTTPException) as exc:
         await create_user_service(db_session, user_in, admin_user)
     assert exc.value.status_code == 403
@@ -84,7 +85,7 @@ async def test_create_user_admin_cannot_create_admin(db_session, admin_user):
 
 @pytest.mark.asyncio
 async def test_create_user_admin_cannot_create_super_admin(db_session, admin_user):
-    user_in = UserCreate(email="sa2@example.com", password="password123", role=Role.SUPER_ADMIN)
+    user_in = UserCreate(email="sa2@example.com", password=TEST_PASSWORD, role=Role.SUPER_ADMIN)
     with pytest.raises(HTTPException) as exc:
         await create_user_service(db_session, user_in, admin_user)
     assert exc.value.status_code == 403
@@ -92,7 +93,7 @@ async def test_create_user_admin_cannot_create_super_admin(db_session, admin_use
 
 @pytest.mark.asyncio
 async def test_create_user_seller_forbidden(db_session, seller_user):
-    user_in = UserCreate(email="y@example.com", password="password123", role=Role.SELLER)
+    user_in = UserCreate(email="y@example.com", password=TEST_PASSWORD, role=Role.SELLER)
     with pytest.raises(HTTPException) as exc:
         await create_user_service(db_session, user_in, seller_user)
     assert exc.value.status_code == 403
@@ -103,27 +104,27 @@ async def test_create_user_seller_forbidden(db_session, seller_user):
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
 async def test_authenticate_user_success(db_session, admin_user):
-    user_in = UserCreate(email="auth@example.com", password="password123", role=Role.SELLER)
+    user_in = UserCreate(email="auth@example.com", password=TEST_PASSWORD, role=Role.SELLER)
     await create_user_service(db_session, user_in, admin_user)
-    user = await authenticate_user(db_session, "auth@example.com", "password123")
+    user = await authenticate_user(db_session, "auth@example.com", TEST_PASSWORD)
     assert user is not None
     assert user.email == "auth@example.com"
 
 
 @pytest.mark.asyncio
 async def test_authenticate_user_wrong_password(db_session, admin_user):
-    user_in = UserCreate(email="wrong@example.com", password="password123", role=Role.SELLER)
+    user_in = UserCreate(email="wrong@example.com", password=TEST_PASSWORD, role=Role.SELLER)
     await create_user_service(db_session, user_in, admin_user)
     assert await authenticate_user(db_session, "wrong@example.com", "incorrect") is None
 
 
 @pytest.mark.asyncio
 async def test_authenticate_user_inactive_raises(db_session, admin_user):
-    user_in = UserCreate(email="inactive@example.com", password="password123", role=Role.SELLER)
+    user_in = UserCreate(email="inactive@example.com", password=TEST_PASSWORD, role=Role.SELLER)
     user = await create_user_service(db_session, user_in, admin_user)
     user.is_active = False
     await db_session.commit()
     with pytest.raises(HTTPException) as exc:
-        await authenticate_user(db_session, "inactive@example.com", "password123")
+        await authenticate_user(db_session, "inactive@example.com", TEST_PASSWORD)
     assert exc.value.status_code == 403
 

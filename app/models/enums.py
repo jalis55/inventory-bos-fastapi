@@ -1,0 +1,44 @@
+import enum
+
+
+class PartyType(str, enum.Enum):
+    SUPPLIER = "SUPPLIER"
+    CUSTOMER = "CUSTOMER"
+    WALK_IN = "WALK_IN"
+
+
+class MovementType(str, enum.Enum):
+    PURCHASE_IN = "PURCHASE_IN"
+    SALE_OUT = "SALE_OUT"
+    PURCHASE_RETURN_OUT = "PURCHASE_RETURN_OUT"
+    SALES_RETURN_IN = "SALES_RETURN_IN"
+    ADJUSTMENT_IN = "ADJUSTMENT_IN"
+    ADJUSTMENT_OUT = "ADJUSTMENT_OUT"
+
+
+class LedgerRefType(str, enum.Enum):
+    PURCHASE = "PURCHASE"
+    SALE = "SALE"
+    PURCHASE_RETURN = "PURCHASE_RETURN"
+    SALES_RETURN = "SALES_RETURN"
+    PAYMENT = "PAYMENT"
+    ADJUSTMENT = "ADJUSTMENT"
+
+
+class PaymentDirection(str, enum.Enum):
+    PAID_TO_SUPPLIER = "PAID_TO_SUPPLIER"
+    RECEIVED_FROM_CUSTOMER = "RECEIVED_FROM_CUSTOMER"
+    REFUND_FROM_SUPPLIER = "REFUND_FROM_SUPPLIER"
+    REFUND_TO_CUSTOMER = "REFUND_TO_CUSTOMER"
+
+
+class PurchaseStatus(str, enum.Enum):
+    DRAFT = "DRAFT"
+    RECEIVED = "RECEIVED"
+    CANCELLED = "CANCELLED"
+
+
+class SaleStatus(str, enum.Enum):
+    DRAFT = "DRAFT"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"

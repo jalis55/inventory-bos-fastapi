@@ -23,12 +23,9 @@ async def register(
     request: Request,
     user_in: UserCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = Depends(
-        get_current_user)
+    current_user: User | None = Depends(get_current_user)
 ):
-
     user = await create_user(db, user_in, current_user)
-
     return {
         "message": "User registered successfully",
         "user": UserOut.model_validate(user)
@@ -45,17 +42,13 @@ async def login(
 ):
     user = await authenticate_user(db, user_in.email, user_in.password)
     if not user:
-        raise HTTPException(
-            status_code=401, detail="Incorrect email or password")
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
 
     access = create_access_token({"sub": user.email, "role": user.role})
     refresh = create_refresh_token({"sub": user.email})
 
     set_auth_cookies(response, access, refresh)
-    return TokenResponse(
-        access_token=access,
-        token_type="bearer"
-    )
+    return TokenResponse(access_token=access, token_type="bearer")
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -65,37 +58,22 @@ async def refresh_token(
     response: Response,
     db: AsyncSession = Depends(get_db)
 ):
-    # Get and validate refresh token
     refresh_token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
     if not refresh_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token missing"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token missing")
 
     payload = decode_token(refresh_token)
     if not payload or payload.get("type") != "refresh":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
-    # Get user
     email = payload.get("sub")
     if not email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
 
     user = await get_user_by_email(db, email)
     if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
-    # Issue new access token only
     new_access = create_access_token({"sub": user.email, "role": user.role})
 
     response.set_cookie(
@@ -109,10 +87,7 @@ async def refresh_token(
         path="/",
     )
 
-    return TokenResponse(
-        access_token=new_access,
-        token_type="bearer"
-    )
+    return TokenResponse(access_token=new_access, token_type="bearer")
 
 
 @router.post("/logout")
