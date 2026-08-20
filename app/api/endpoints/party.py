@@ -12,6 +12,7 @@ from app.schemas.party import (
 )
 from app.schemas.party_ledger_entry import PartyLedgerEntryOutPaginate
 from app.api.deps import require_superadmin_or_admin, get_current_user
+from decimal import Decimal
 
 router = APIRouter(prefix="/party", tags=["party"])
 
@@ -23,7 +24,11 @@ async def create_party(
     _=Depends(require_superadmin_or_admin),
 ):
     try:
-        new_party = PartyModel(**party.model_dump())
+        data = party.model_dump()
+        data.setdefault("balance_cached", Decimal("0"))
+        data.setdefault("credit_limit", Decimal("0"))
+
+        new_party = PartyModel(**data)
         db.add(new_party)
         await db.commit()
         await db.refresh(new_party)
@@ -44,10 +49,14 @@ async def create_party(
 @router.get("/", response_model=PartyOutPaginate)
 async def list_parties(
     skip: int = Query(0, ge=0, description="Number of items to skip"),
-    limit: int = Query(10, ge=1, le=200, description="Max number of items to return"),
-    is_active: bool | None = Query(None, description="Filter by active status"),
-    party_type: PartyType | None = Query(None, description="Filter by party type"),
-    search: str | None = Query(None, description="Search by name, phone, or email"),
+    limit: int = Query(
+        10, ge=1, le=200, description="Max number of items to return"),
+    is_active: bool | None = Query(
+        None, description="Filter by active status"),
+    party_type: PartyType | None = Query(
+        None, description="Filter by party type"),
+    search: str | None = Query(
+        None, description="Search by name, phone, or email"),
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
@@ -197,11 +206,13 @@ async def get_party_ledger(
     """
     party_result = await db.execute(select(PartyModel).where(PartyModel.id == id))
     if not party_result.scalars().first():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Party not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Party not found")
 
     stmt = select(PartyLedgerEntry).where(PartyLedgerEntry.party_id == id)
     count_stmt = (
-        select(func.count()).select_from(PartyLedgerEntry).where(PartyLedgerEntry.party_id == id)
+        select(func.count()).select_from(PartyLedgerEntry).where(
+            PartyLedgerEntry.party_id == id)
     )
 
     if ref_type is not None:
@@ -215,7 +226,8 @@ async def get_party_ledger(
         count_stmt = count_stmt.where(PartyLedgerEntry.entry_date <= to_date)
 
     total = (await db.execute(count_stmt)).scalar_one()
-    stmt = stmt.order_by(PartyLedgerEntry.entry_date.asc()).offset(skip).limit(limit)
+    stmt = stmt.order_by(PartyLedgerEntry.entry_date.asc()
+                         ).offset(skip).limit(limit)
     items = (await db.execute(stmt)).scalars().all()
 
     return PartyLedgerEntryOutPaginate(total=total, page=(skip // limit) + 1, size=len(items), items=items)

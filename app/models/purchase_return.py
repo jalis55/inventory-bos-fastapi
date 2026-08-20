@@ -13,6 +13,10 @@ from app.db.base import Base
 class PurchaseReturn(Base):
     __tablename__ = "purchase_returns"
 
+    # Eagerly fetch server-generated created_at during flush so it's never
+    # left "expired" after commit (async + expired attr = MissingGreenlet).
+    __mapper_args__ = {"eager_defaults": True}
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey("parties.id"), nullable=False)
     return_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -31,6 +35,12 @@ class PurchaseReturn(Base):
 
     def __repr__(self):
         return f"<PurchaseReturn(id={self.id}, supplier_id={self.supplier_id})>"
+
+    # Readable supplier name for API consumers - requires the caller to have
+    # eager-loaded `supplier` (the endpoints do), otherwise it lazy-loads.
+    @property
+    def supplier_name(self) -> str | None:
+        return self.supplier.name if self.supplier else None
 
 
 class PurchaseReturnLine(Base):
@@ -63,3 +73,17 @@ class PurchaseReturnLine(Base):
         Index("idx_pr_line_purchase_line_id", "purchase_line_id"),
         CheckConstraint("qty > 0", name="check_pr_line_qty_positive"),
     )
+
+    # Variant info for the UI, derived from the batch - requires the caller
+    # to have eager-loaded `batch` -> `variant` (the endpoints do).
+    @property
+    def variant_id(self) -> str | None:
+        return self.batch.variant_id if self.batch else None
+
+    @property
+    def variant_name(self) -> str | None:
+        return self.batch.variant.name if self.batch and self.batch.variant else None
+
+    @property
+    def variant_sku(self) -> str | None:
+        return self.batch.variant.sku if self.batch and self.batch.variant else None

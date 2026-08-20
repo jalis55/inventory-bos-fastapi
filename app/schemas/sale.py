@@ -12,13 +12,15 @@ class SaleConfig(BaseModel):
 
 class SaleLineCreate(SaleConfig):
     """
-    Client supplies variant + qty + selling price.
-    The service is responsible for FIFO-selecting the batch(es) and
-    splitting into multiple SaleLine rows if needed.
+    Client supplies variant + qty + selling price. Optionally a specific
+    batch_id (=> a specific supplier's stock, since each batch carries its
+    own supplier + cost_price); leave blank to let the service FIFO-select
+    across all available batches.
     """
     variant_id: str = Field(..., description="ProductVariant UUID")
     qty: Decimal = Field(..., gt=0)
     unit_price: Decimal = Field(..., ge=0, description="Selling price per unit")
+    batch_id: Optional[str] = Field(None, description="Optional chosen batch/supplier")
 
 
 class SaleLineOut(SaleConfig):
@@ -57,6 +59,10 @@ class SaleOut(SaleConfig):
     created_by: Optional[int]
     created_at: datetime
     updated_at: datetime
+    # Per-order received + returned amounts -
+    # outstanding = SUM(lines.line_total) - amount_paid - returned_amount
+    amount_paid: Decimal = Decimal("0")
+    returned_amount: Decimal = Decimal("0")
     lines: List[SaleLineOut] = []
 
 

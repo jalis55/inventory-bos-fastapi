@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Optional
-from datetime import date
-from sqlalchemy import String, Numeric, Date, ForeignKey, Integer, Index, CheckConstraint
+from datetime import date, datetime
+from sqlalchemy import String, Numeric, Date, DateTime, ForeignKey, Integer, Index, CheckConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.utils.helpers import generate_uuid
 
@@ -17,10 +17,18 @@ from app.db.base import Base  # adjust to your project's actual declarative base
 class ProductBatch(Base):
     __tablename__ = "product_batches"
 
+    # Eagerly fetch server-generated created_at during flush so it's never
+    # left "expired" after commit (async + expired attr = MissingGreenlet).
+    __mapper_args__ = {"eager_defaults": True}
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
 
     variant_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("product_variants.id"), nullable=False
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
     # unique=True is what enforces the strict rule: one batch per
@@ -69,6 +77,22 @@ class ProductBatch(Base):
             "qty_remaining <= qty_received", name="check_qty_remaining_not_exceed_received"
         ),
     )
+
+    # Readable supplier name for API consumers - relies on the caller having
+    # eager-loaded `supplier` (see the batch endpoints), otherwise it lazy-loads.
+    @property
+    def supplier_name(self) -> str | None:
+        return self.supplier.name if self.supplier else None
+
+    # Variant info for the UI - relies on the caller having eager-loaded
+    # `variant` (see the batch endpoints), otherwise it lazy-loads.
+    @property
+    def variant_name(self) -> str | None:
+        return self.variant.name if self.variant else None
+
+    @property
+    def variant_sku(self) -> str | None:
+        return self.variant.sku if self.variant else None
 
     def __repr__(self):
         return (

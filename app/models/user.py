@@ -16,6 +16,11 @@ class Role(str, Enum):
 class User(Base):
     __tablename__ = "users"
 
+    # Eagerly fetch server-generated created_at/updated_at during flush so
+    # they're never left "expired" after commit (reading an expired attr in
+    # an async context raises MissingGreenlet).
+    __mapper_args__ = {"eager_defaults": True}
+
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)

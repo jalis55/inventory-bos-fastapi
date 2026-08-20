@@ -14,6 +14,10 @@ from app.db.base import Base
 class Payment(Base):
     __tablename__ = "payments"
 
+    # Eagerly fetch server-generated created_at during flush so it's never
+    # left "expired" after commit (async + expired attr = MissingGreenlet).
+    __mapper_args__ = {"eager_defaults": True}
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
 
     # Null for a walk-in refund - no ongoing balance to adjust, this row
@@ -36,6 +40,16 @@ class Payment(Base):
         String(36), ForeignKey("sales_returns.id"), nullable=True
     )
 
+    # Optional: the completed sale order this payment is applied to. One
+    # payment applies to one sale; several payments can accumulate against
+    # the same sale (3000 today, 1200 later, 800 later). This drives the
+    # per-order tracking in sale.amount_paid so outstanding is computed
+    # order-by-order instead of just against the party's overall balance.
+    # Only meaningful for RECEIVED_FROM_CUSTOMER. Null = on-account.
+    sale_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("sales.id"), nullable=True
+    )
+
     created_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True
     )
@@ -43,6 +57,7 @@ class Payment(Base):
 
     party: Mapped[Optional["Party"]] = relationship("Party", back_populates="payments")
     sales_return: Mapped[Optional["SalesReturn"]] = relationship("SalesReturn")
+    sale: Mapped[Optional["Sale"]] = relationship("Sale")
 
     __table_args__ = (
         Index("idx_payment_party_id", "party_id"),

@@ -1,6 +1,7 @@
 from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from app.models.purchase import PurchaseLine
 from app.models.purchase_return import PurchaseReturn, PurchaseReturnLine
@@ -25,10 +26,14 @@ async def create_purchase_return(db: AsyncSession, payload, created_by: int | No
 
     purchase_return = PurchaseReturn(
         supplier_id=payload.supplier_id,
+        supplier=supplier,
         return_date=payload.return_date,
         reason=payload.reason,
         created_by=created_by,
     )
+    # Pre-load the collection so appending lines later (after flush) doesn't
+    # trigger a lazy load in the async context (MissingGreenlet).
+    purchase_return.lines = []
     db.add(purchase_return)
     await db.flush()
 
@@ -44,7 +49,9 @@ async def create_purchase_return(db: AsyncSession, payload, created_by: int | No
             )
 
         batch = (await db.execute(
-            select(ProductBatch).where(ProductBatch.purchase_line_id == pline.id)
+            select(ProductBatch)
+            .options(selectinload(ProductBatch.variant))
+            .where(ProductBatch.purchase_line_id == pline.id)
         )).scalars().first()
         if not batch:
             raise HTTPException(
@@ -65,10 +72,10 @@ async def create_purchase_return(db: AsyncSession, payload, created_by: int | No
         ))
 
         line_total = line_in.qty * batch.cost_price
-        db.add(PurchaseReturnLine(
-            purchase_return_id=purchase_return.id,
+        purchase_return.lines.append(PurchaseReturnLine(
             purchase_line_id=pline.id,
             batch_id=batch.id,
+            batch=batch,
             qty=line_in.qty,
             unit_cost=batch.cost_price,
             line_total=line_total,

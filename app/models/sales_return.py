@@ -13,6 +13,10 @@ from app.db.base import Base
 class SalesReturn(Base):
     __tablename__ = "sales_returns"
 
+    # Eagerly fetch server-generated created_at during flush so it's never
+    # left "expired" after commit (async + expired attr = MissingGreenlet).
+    __mapper_args__ = {"eager_defaults": True}
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     # Null for a walk-in return - see app/services/sales_return.py for how
     # that's handled (a Payment refund instead of a ledger entry).
@@ -35,6 +39,12 @@ class SalesReturn(Base):
 
     def __repr__(self):
         return f"<SalesReturn(id={self.id}, party_id={self.party_id})>"
+
+    # Readable party name for API consumers - requires the caller to have
+    # eager-loaded `party` (the endpoints do), otherwise it lazy-loads.
+    @property
+    def party_name(self) -> str | None:
+        return self.party.name if self.party else None
 
 
 class SalesReturnLine(Base):
@@ -65,3 +75,17 @@ class SalesReturnLine(Base):
         Index("idx_sr_line_sale_line_id", "sale_line_id"),
         CheckConstraint("qty > 0", name="check_sr_line_qty_positive"),
     )
+
+    # Variant info for the UI, derived from the batch - requires the caller
+    # to have eager-loaded `batch` -> `variant` (the endpoints do).
+    @property
+    def variant_id(self) -> str | None:
+        return self.batch.variant_id if self.batch else None
+
+    @property
+    def variant_name(self) -> str | None:
+        return self.batch.variant.name if self.batch and self.batch.variant else None
+
+    @property
+    def variant_sku(self) -> str | None:
+        return self.batch.variant.sku if self.batch and self.batch.variant else None

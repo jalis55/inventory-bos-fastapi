@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import List, Optional
 from datetime import date
-from sqlalchemy import String, Numeric, Date, Text, ForeignKey, Integer, Enum, Index, CheckConstraint
+from sqlalchemy import String, Numeric, Date, Text, ForeignKey, Integer, Enum, Index, CheckConstraint, func, Computed
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.enums import PurchaseStatus
 from app.utils.helpers import generate_uuid
@@ -15,9 +15,16 @@ from app.db.base import Base
 class Purchase(Base):
     __tablename__ = "purchases"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    # Eagerly fetch server-generated created_at/updated_at during flush so
+    # they're never left "expired" after commit (reading an expired attr in
+    # an async context raises MissingGreenlet).
+    __mapper_args__ = {"eager_defaults": True}
 
-    supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey("parties.id"), nullable=False)
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=generate_uuid)
+
+    supplier_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("parties.id"), nullable=False)
 
     status: Mapped[PurchaseStatus] = mapped_column(
         Enum(PurchaseStatus, name="purchase_status"),
@@ -35,13 +42,14 @@ class Purchase(Base):
         Integer, ForeignKey("users.id"), nullable=True
     )
 
-    created_at: Mapped[date] = mapped_column(Date, server_default="now()")
+    created_at: Mapped[date] = mapped_column(Date, server_default=func.now())
     updated_at: Mapped[date] = mapped_column(
-        Date, server_default="now()", onupdate="now()"
+        Date, server_default=func.now(), onupdate=func.now()
     )
 
     # Relationships
-    supplier: Mapped["Party"] = relationship("Party", back_populates="purchases")
+    supplier: Mapped["Party"] = relationship(
+        "Party", back_populates="purchases")
     lines: Mapped[List["PurchaseLine"]] = relationship(
         "PurchaseLine", back_populates="purchase", cascade="all, delete-orphan"
     )
@@ -58,7 +66,8 @@ class Purchase(Base):
 class PurchaseLine(Base):
     __tablename__ = "purchase_lines"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=generate_uuid)
 
     purchase_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("purchases.id"), nullable=False
@@ -70,20 +79,17 @@ class PurchaseLine(Base):
     qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
-    # Computed once at creation (qty * unit_cost) and never independently
-    # edited afterward - same "locked at creation" rule as
-    # ProductBatch.cost_price. Stored rather than a DB-generated column so
-    # it stays simple and portable; set it explicitly in the service layer
-    # when a PurchaseLine is created, don't rely on a default.
-    line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    # Database-generated column – never set this from Python
+    line_total: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        Computed("qty * unit_cost", persisted=True),
+    )
 
     # Relationships
-    purchase: Mapped["Purchase"] = relationship("Purchase", back_populates="lines")
+    purchase: Mapped["Purchase"] = relationship(
+        "Purchase", back_populates="lines")
     variant: Mapped["ProductVariant"] = relationship("ProductVariant")
 
-    # One-to-one with the batch it generates once the purchase is RECEIVED.
-    # Optional because a DRAFT purchase's lines have no batch yet - the
-    # batch is only created when record-keeping moves status -> RECEIVED.
     batch: Mapped[Optional["ProductBatch"]] = relationship(
         "ProductBatch", back_populates="purchase_line", uselist=False
     )
@@ -92,7 +98,8 @@ class PurchaseLine(Base):
         Index("idx_purchase_line_purchase_id", "purchase_id"),
         Index("idx_purchase_line_variant_id", "variant_id"),
         CheckConstraint("qty > 0", name="check_purchase_line_qty_positive"),
-        CheckConstraint("unit_cost > 0", name="check_purchase_line_unit_cost_positive"),
+        CheckConstraint("unit_cost > 0",
+                        name="check_purchase_line_unit_cost_positive"),
     )
 
     def __repr__(self):

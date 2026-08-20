@@ -1,6 +1,7 @@
 from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from app.models.sale import SaleLine
 from app.models.sales_return import SalesReturn, SalesReturnLine
@@ -29,17 +30,28 @@ async def create_sales_return(db: AsyncSession, payload, created_by: int | None)
 
     sales_return = SalesReturn(
         party_id=payload.party_id,
+        party=party,
         return_date=payload.return_date,
         reason=payload.reason,
         created_by=created_by,
     )
+    # Pre-load the collection so appending lines later (after flush) doesn't
+    # trigger a lazy load in the async context (MissingGreenlet).
+    sales_return.lines = []
     db.add(sales_return)
     await db.flush()
 
     total = Decimal("0")
+    # Per order: how much of this return applies to each affected sale, so
+    # each order's returned_amount stays correct even if one return document
+    # spans lines from multiple sale orders.
+    sales_by_id: dict[str, "Sale"] = {}
+    return_totals: dict[str, Decimal] = {}
     for line_in in payload.lines:
         sline = (await db.execute(
-            select(SaleLine).where(SaleLine.id == line_in.sale_line_id)
+            select(SaleLine)
+            .options(selectinload(SaleLine.sale))
+            .where(SaleLine.id == line_in.sale_line_id)
         )).scalars().first()
         if not sline or sline.batch_id is None:
             raise HTTPException(
@@ -48,7 +60,9 @@ async def create_sales_return(db: AsyncSession, payload, created_by: int | None)
             )
 
         batch = (await db.execute(
-            select(ProductBatch).where(ProductBatch.id == sline.batch_id)
+            select(ProductBatch)
+            .options(selectinload(ProductBatch.variant))
+            .where(ProductBatch.id == sline.batch_id)
         )).scalars().first()
 
         record_batch_movement(batch, qty_delta=+line_in.qty)
@@ -64,15 +78,20 @@ async def create_sales_return(db: AsyncSession, payload, created_by: int | None)
         ))
 
         line_total = line_in.qty * sline.unit_price
-        db.add(SalesReturnLine(
-            sales_return_id=sales_return.id,
+        sales_return.lines.append(SalesReturnLine(
             sale_line_id=sline.id,
             batch_id=batch.id,
+            batch=batch,
             qty=line_in.qty,
             unit_price=sline.unit_price,
             line_total=line_total,
         ))
         total += line_total
+        sales_by_id[sline.sale_id] = sline.sale
+        return_totals[sline.sale_id] = return_totals.get(sline.sale_id, Decimal("0")) + line_total
+
+    for sale_id, rtotal in return_totals.items():
+        sales_by_id[sale_id].returned_amount += rtotal
 
     if party is not None:
         # Reduces what they owe you (or increases what you owe them).

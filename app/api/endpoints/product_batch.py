@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from app.api.deps import require_superadmin_or_admin_or_storekeeper, get_current_user
 from app.models.product_batch import ProductBatch
 from app.models.product_variant import ProductVariant
@@ -81,7 +82,10 @@ async def list_batches(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    stmt = select(ProductBatch)
+    stmt = select(ProductBatch).options(
+        selectinload(ProductBatch.supplier),
+        selectinload(ProductBatch.variant),
+    )
     count_stmt = select(func.count()).select_from(ProductBatch)
 
     if variant_id is not None:
@@ -123,6 +127,10 @@ async def list_batches_fifo(
     """
     result = await db.execute(
         select(ProductBatch)
+        .options(
+            selectinload(ProductBatch.supplier),
+            selectinload(ProductBatch.variant),
+        )
         .where(ProductBatch.variant_id == variant_id, ProductBatch.qty_remaining > 0)
         .order_by(ProductBatch.received_date.asc(), ProductBatch.created_at.asc())
     )
@@ -135,7 +143,14 @@ async def get_batch(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    result = await db.execute(select(ProductBatch).where(ProductBatch.id == id))
+    result = await db.execute(
+        select(ProductBatch)
+        .options(
+            selectinload(ProductBatch.supplier),
+            selectinload(ProductBatch.variant),
+        )
+        .where(ProductBatch.id == id)
+    )
     batch = result.scalars().first()
 
     if not batch:
@@ -158,7 +173,9 @@ async def update_batch_expiry(
     permanently locked once created - see record_batch_movement() in
     app/services/product_batch.py for the only sanctioned way qty changes.
     """
-    result = await db.execute(select(ProductBatch).where(ProductBatch.id == id))
+    result = await db.execute(
+        select(ProductBatch).options(selectinload(ProductBatch.supplier)).where(ProductBatch.id == id)
+    )
     batch = result.scalars().first()
 
     if not batch:
@@ -168,8 +185,18 @@ async def update_batch_expiry(
 
     batch.expiry_date = payload.expiry_date
     await db.commit()
-    await db.refresh(batch)
-    return batch
+    # Re-query with eager loading - db.refresh() would expire the `supplier`
+    # and `variant` relationships, and reading the name properties in the
+    # async response serializer would then lazy-load them -> MissingGreenlet.
+    result = await db.execute(
+        select(ProductBatch)
+        .options(
+            selectinload(ProductBatch.supplier),
+            selectinload(ProductBatch.variant),
+        )
+        .where(ProductBatch.id == id)
+    )
+    return result.scalars().first()
 
 
 # No PUT, no general-purpose update, no DELETE.

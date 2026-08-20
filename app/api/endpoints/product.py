@@ -11,6 +11,7 @@ from app.db import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, func, or_
+from sqlalchemy.orm import selectinload
 from app.models.product_variant import ProductVariant
 
 
@@ -28,7 +29,20 @@ async def create_product(
         db.add(new_product)
         await db.commit()
         await db.refresh(new_product)
-        return new_product
+
+        # Eagerly load the category and brand relationships
+        result = await db.execute(
+            select(Product)
+            .where(Product.id == new_product.id)
+            .options(
+                selectinload(Product.category),
+                selectinload(Product.brand)
+            )
+        )
+        loaded_product = result.scalar_one()
+
+        return loaded_product
+
     except IntegrityError:
         await db.rollback()
         raise HTTPException(
@@ -45,15 +59,21 @@ async def create_product(
 @router.get("/", response_model=ProductPaginate, status_code=status.HTTP_200_OK)
 async def list_products(
     skip: int = Query(0, ge=0, description="Number of items to skip"),
-    limit: int = Query(10, ge=1, le=200, description="Max number of items to return"),
+    limit: int = Query(
+        10, ge=1, le=200, description="Max number of items to return"),
     category_id: int | None = Query(None, description="Filter by category"),
     brand_id: int | None = Query(None, description="Filter by brand"),
-    is_active: bool | None = Query(None, description="Filter by active status"),
-    search: str | None = Query(None, description="Search by name or description"),
+    is_active: bool | None = Query(
+        None, description="Filter by active status"),
+    search: str | None = Query(
+        None, description="Search by name or description"),
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    stmt = select(Product)
+    stmt = select(Product).options(
+        selectinload(Product.category),
+        selectinload(Product.brand),
+    )
     count_stmt = select(func.count()).select_from(Product)
 
     if is_active is not None:
@@ -98,7 +118,14 @@ async def get_product(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    result = await db.execute(select(Product).where(Product.id == id))
+    result = await db.execute(
+        select(Product)
+        .where(Product.id == id)
+        .options(
+            selectinload(Product.category),
+            selectinload(Product.brand),
+        )
+    )
     product = result.scalars().first()
 
     if not product:
@@ -124,20 +151,12 @@ async def update_product(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
             )
 
-        # exclude_unset=True is what makes this a true PATCH-style partial
-        # update - only fields actually sent in the request body get
-        # touched, so omitted fields keep their existing values instead of
-        # being wiped to None.
         update_data = product_update.model_dump(exclude_unset=True)
         name_changed = "name" in update_data and update_data["name"] != product.name
 
         for field, value in update_data.items():
             setattr(product, field, value)
 
-        # ProductVariant.name is denormalized as "{product.name} {variant_name}"
-        # for search/listing without a join. If the product's name changes,
-        # every variant's cached name goes stale unless we cascade the
-        # update here, in the same transaction.
         if name_changed:
             variants_result = await db.execute(
                 select(ProductVariant).where(ProductVariant.product_id == id)
@@ -146,8 +165,18 @@ async def update_product(
                 variant.name = f"{product.name} {variant.variant_name}"
 
         await db.commit()
-        await db.refresh(product)
-        return product
+
+        # Re-query with relationships so ProductOut can serialize cleanly
+        result = await db.execute(
+            select(Product)
+            .where(Product.id == id)
+            .options(
+                selectinload(Product.category),
+                selectinload(Product.brand),
+            )
+        )
+        return result.scalar_one()
+
     except HTTPException:
         raise
     except IntegrityError:
@@ -179,8 +208,16 @@ async def deactivate_product(
 
     product.is_active = False
     await db.commit()
-    await db.refresh(product)
-    return product
+
+    result = await db.execute(
+        select(Product)
+        .where(Product.id == id)
+        .options(
+            selectinload(Product.category),
+            selectinload(Product.brand),
+        )
+    )
+    return result.scalar_one()
 
 
 @router.patch("/{id}/activate", response_model=ProductOut)
@@ -199,8 +236,16 @@ async def activate_product(
 
     product.is_active = True
     await db.commit()
-    await db.refresh(product)
-    return product
+
+    result = await db.execute(
+        select(Product)
+        .where(Product.id == id)
+        .options(
+            selectinload(Product.category),
+            selectinload(Product.brand),
+        )
+    )
+    return result.scalar_one()
 
 
 # NOTE: Hard delete is intentionally not implemented for products.

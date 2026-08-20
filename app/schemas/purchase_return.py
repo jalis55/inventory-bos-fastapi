@@ -27,6 +27,9 @@ class PurchaseReturnLineOut(PurchaseReturnConfig):
     purchase_return_id: str
     purchase_line_id: str
     batch_id: str
+    variant_id: Optional[str] = None
+    variant_name: Optional[str] = None
+    variant_sku: Optional[str] = None
     qty: Decimal
     unit_cost: Decimal           # copied from batch.cost_price at return time
     line_total: Decimal          # qty * unit_cost
@@ -48,6 +51,7 @@ class PurchaseReturnCreate(PurchaseReturnConfig):
 class PurchaseReturnOut(PurchaseReturnConfig):
     id: str
     supplier_id: int
+    supplier_name: Optional[str] = None
     return_date: date
     reason: Optional[str]
     created_by: Optional[int]

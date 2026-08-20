@@ -11,6 +11,10 @@ from app.db.base import Base
 class PartyLedgerEntry(Base):
     __tablename__ = "party_ledger_entries"
 
+    # Eagerly fetch server-generated entry_date during flush so it's never
+    # left "expired" after commit (async + expired attr = MissingGreenlet).
+    __mapper_args__ = {"eager_defaults": True}
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     party_id: Mapped[int] = mapped_column(Integer, ForeignKey("parties.id"), nullable=False)
 

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.db import get_db
@@ -27,7 +28,9 @@ async def list_stock_movements(
     Read-only audit log. No create / update / delete endpoints —
     movements are only ever written by services.
     """
-    stmt = select(StockMovement)
+    stmt = select(StockMovement).options(
+        selectinload(StockMovement.variant), selectinload(StockMovement.batch)
+    )
     count_stmt = select(func.count()).select_from(StockMovement)
 
     if variant_id is not None:
@@ -62,7 +65,11 @@ async def get_stock_movement(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    result = await db.execute(select(StockMovement).where(StockMovement.id == id))
+    result = await db.execute(
+        select(StockMovement)
+        .where(StockMovement.id == id)
+        .options(selectinload(StockMovement.variant), selectinload(StockMovement.batch))
+    )
     movement = result.scalars().first()
     if not movement:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stock movement not found")

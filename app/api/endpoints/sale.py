@@ -9,6 +9,7 @@ from app.db import get_db
 from app.models.sale import Sale, SaleLine
 from app.models.party import Party
 from app.models.product_variant import ProductVariant
+from app.models.product_batch import ProductBatch
 from app.models.enums import PartyType, SaleStatus
 from app.models.user import User
 from app.schemas.sale import (
@@ -55,6 +56,33 @@ async def _assert_variants_exist(db: AsyncSession, variant_ids: list[str]) -> No
         )
 
 
+async def _assert_chosen_batches(db: AsyncSession, lines: list) -> None:
+    """
+    For any line that pinned a batch (user picked a specific supplier's
+    stock), make sure the batch actually belongs to that variant and still
+    has remaining stock. Called before the DRAFT is persisted.
+    """
+    for line in lines:
+        if not line.batch_id:
+            continue
+        result = await db.execute(select(ProductBatch).where(ProductBatch.id == line.batch_id))
+        batch = result.scalars().first()
+        if not batch:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"Batch {line.batch_id} not found"
+            )
+        if batch.variant_id != line.variant_id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Batch {line.batch_id} does not belong to variant {line.variant_id}",
+            )
+        if batch.qty_remaining <= 0:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Batch {line.batch_id} has no remaining stock",
+            )
+
+
 # ─── CREATE (DRAFT) ─────────────────────────────────────────────────────────
 
 @router.post("", response_model=SaleOut, status_code=status.HTTP_201_CREATED)
@@ -74,6 +102,7 @@ async def create_sale(
     """
     await _assert_customer_or_none(db, payload.party_id)
     await _assert_variants_exist(db, [line.variant_id for line in payload.lines])
+    await _assert_chosen_batches(db, payload.lines)
 
     try:
         sale = Sale(
@@ -87,13 +116,14 @@ async def create_sale(
                 variant_id=line_data.variant_id,
                 qty=line_data.qty,
                 unit_price=line_data.unit_price,
-                line_total=line_data.qty * line_data.unit_price,
-                # batch_id / unit_cost_snapshot intentionally left NULL
+                # batch_id = the user's chosen supplier batch (if any). If
+                # left NULL, complete_sale() will FIFO-select across all
+                # available batches. unit_cost_snapshot stays NULL here.
+                batch_id=line_data.batch_id,
             ))
 
         db.add(sale)
         await db.commit()
-        await db.refresh(sale, attribute_names=["lines"])
         return sale
     except IntegrityError:
         await db.rollback()
@@ -160,7 +190,6 @@ async def update_sale(
         for field, value in update_data.items():
             setattr(sale, field, value)
         await db.commit()
-        await db.refresh(sale, attribute_names=["lines"])
         return sale
     except IntegrityError:
         await db.rollback()
@@ -197,7 +226,9 @@ async def complete_sale(
     try:
         sale = await svc_complete_sale(db, sale, performed_by=current_user.id)
         await db.commit()
-        await db.refresh(sale, attribute_names=["lines"])
+        # complete_sale() rebuilds sale.lines in memory (the draft lines were
+        # deleted and replaced with the batch-allocated ones), so the object
+        # is ready to serialize directly. No re-query needed.
         return sale
     except HTTPException:
         await db.rollback()
@@ -224,5 +255,4 @@ async def cancel_sale(
 
     sale.status = SaleStatus.CANCELLED
     await db.commit()
-    await db.refresh(sale, attribute_names=["lines"])
     return sale

@@ -26,6 +26,15 @@ class PaymentCreate(PaymentConfig):
     payment_date: date
     reference_no: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=500)
+    sale_id: Optional[str] = Field(
+        None,
+        description=(
+            "RECEIVED_FROM_CUSTOMER / REFUND_TO_CUSTOMER only. The completed "
+            "sale order this payment applies to - drives per-order accounting "
+            "(sale.amount_paid / returned_amount). A receipt increments "
+            "amount_paid; a refund decrements it."
+        ),
+    )
     sales_return_id: Optional[str] = Field(
         None,
         description=(
@@ -45,6 +54,7 @@ class PaymentOut(PaymentConfig):
     payment_date: date
     reference_no: Optional[str]
     notes: Optional[str]
+    sale_id: Optional[str] = None
     sales_return_id: Optional[str]
     created_by: Optional[int]
     created_at: datetime

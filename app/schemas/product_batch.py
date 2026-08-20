@@ -30,8 +30,11 @@ class ProductBatchExpiryUpdate(BaseModel):
 class ProductBatchOut(BaseModel):
     id: str
     variant_id: str
+    variant_name: Optional[str] = None
+    variant_sku: Optional[str] = None
     purchase_line_id: str
     supplier_id: int
+    supplier_name: Optional[str] = None
     cost_price: Decimal
     qty_received: Decimal
     qty_remaining: Decimal

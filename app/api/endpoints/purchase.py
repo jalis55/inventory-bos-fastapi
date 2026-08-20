@@ -41,7 +41,8 @@ async def _assert_supplier(db: AsyncSession, supplier_id: int) -> Party:
     if not party:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Supplier not found")
     if party.party_type != PartyType.SUPPLIER:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "party_id must belong to a SUPPLIER")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "party_id must belong to a SUPPLIER")
     return party
 
 
@@ -82,18 +83,16 @@ async def create_purchase(
                 variant_id=line_data.variant_id,
                 qty=line_data.qty,
                 unit_cost=line_data.unit_cost,
-                # line_total is NOT NULL on PurchaseLine - must be set here,
-                # the original version of this router omitted it entirely.
-                line_total=line_data.qty * line_data.unit_cost,
+                # line_total is DB-generated (qty * unit_cost) - never set from Python
             ))
 
         db.add(purchase)
         await db.commit()
-        await db.refresh(purchase, attribute_names=["lines"])
         return purchase
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "Integrity error while creating purchase")
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Integrity error while creating purchase")
     except Exception as e:
         await db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
@@ -123,7 +122,8 @@ async def list_purchases(
         count_stmt = count_stmt.where(Purchase.status == purchase_status)
 
     total = (await db.execute(count_stmt)).scalar_one()
-    stmt = stmt.order_by(Purchase.purchase_date.desc(), Purchase.created_at.desc())
+    stmt = stmt.order_by(Purchase.purchase_date.desc(),
+                         Purchase.created_at.desc())
     stmt = stmt.offset(skip).limit(limit)
     items = (await db.execute(stmt)).scalars().all()
 
@@ -148,7 +148,8 @@ async def update_purchase(
 ):
     purchase = await _get_purchase_or_404(db, id)
     if purchase.status != PurchaseStatus.DRAFT:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only DRAFT purchases can be updated")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "Only DRAFT purchases can be updated")
 
     update_data = payload.model_dump(exclude_unset=True)
     if "supplier_id" in update_data:
@@ -158,11 +159,11 @@ async def update_purchase(
         for field, value in update_data.items():
             setattr(purchase, field, value)
         await db.commit()
-        await db.refresh(purchase, attribute_names=["lines"])
         return purchase
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "Integrity error while updating purchase")
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Integrity error while updating purchase")
     except Exception as e:
         await db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
@@ -191,12 +192,12 @@ async def receive_purchase(
             f"Cannot receive a purchase that is already {purchase.status}",
         )
     if not purchase.lines:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Purchase has no lines - nothing to receive")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "Purchase has no lines - nothing to receive")
 
     try:
         purchase = await svc_receive_purchase(db, purchase, performed_by=current_user.id)
         await db.commit()
-        await db.refresh(purchase, attribute_names=["lines"])
         return purchase
     except HTTPException:
         await db.rollback()
@@ -224,8 +225,8 @@ async def cancel_purchase(
 
     purchase.status = PurchaseStatus.CANCELLED
     if payload.reason:
-        purchase.notes = ((purchase.notes or "") + f"\n[CANCELLED] {payload.reason}").strip()
+        purchase.notes = ((purchase.notes or "") +
+                          f"\n[CANCELLED] {payload.reason}").strip()
 
     await db.commit()
-    await db.refresh(purchase, attribute_names=["lines"])
     return purchase

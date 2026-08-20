@@ -26,6 +26,9 @@ class SalesReturnLineOut(SalesReturnConfig):
     sales_return_id: str
     sale_line_id: str
     batch_id: str                # stock goes back into the SAME batch it left
+    variant_id: Optional[str] = None
+    variant_name: Optional[str] = None
+    variant_sku: Optional[str] = None
     qty: Decimal
     unit_price: Decimal          # copied from sale_line.unit_price
     line_total: Decimal          # qty * unit_price
@@ -52,6 +55,7 @@ class SalesReturnCreate(SalesReturnConfig):
 class SalesReturnOut(SalesReturnConfig):
     id: str
     party_id: Optional[int]
+    party_name: Optional[str] = None
     return_date: date
     reason: Optional[str]
     created_by: Optional[int]

@@ -30,12 +30,26 @@ async def complete_sale(db: AsyncSession, sale: Sale, performed_by: int | None) 
     for draft in draft_lines:
         remaining = draft.qty
 
-        batches_result = await db.execute(
-            select(ProductBatch)
-            .where(ProductBatch.variant_id == draft.variant_id, ProductBatch.qty_remaining > 0)
-            .order_by(ProductBatch.received_date.asc(), ProductBatch.created_at.asc())
-        )
-        batches = batches_result.scalars().all()
+        # If the user pinned a specific batch (chosen supplier), draw ONLY
+        # from that batch; otherwise FIFO across all available batches.
+        if draft.batch_id:
+            batch_result = await db.execute(
+                select(ProductBatch).where(ProductBatch.id == draft.batch_id)
+            )
+            chosen = batch_result.scalars().first()
+            if not chosen or chosen.variant_id != draft.variant_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Chosen batch {draft.batch_id} does not belong to variant {draft.variant_id}",
+                )
+            batches = [chosen] if chosen.qty_remaining > 0 else []
+        else:
+            batches_result = await db.execute(
+                select(ProductBatch)
+                .where(ProductBatch.variant_id == draft.variant_id, ProductBatch.qty_remaining > 0)
+                .order_by(ProductBatch.received_date.asc(), ProductBatch.id.asc())
+            )
+            batches = batches_result.scalars().all()
 
         for batch in batches:
             if remaining <= 0:
@@ -62,7 +76,7 @@ async def complete_sale(db: AsyncSession, sale: Sale, performed_by: int | None) 
                 qty=take,
                 unit_price=draft.unit_price,
                 unit_cost_snapshot=batch.cost_price,
-                line_total=line_total,
+                # line_total is DB-generated (qty * unit_price) - never set from Python
             ))
             total += line_total
             remaining -= take
@@ -76,12 +90,17 @@ async def complete_sale(db: AsyncSession, sale: Sale, performed_by: int | None) 
                 ),
             )
 
-    # Replace the draft (unallocated) lines with the final, batch-allocated ones.
+    # Replace the draft (unallocated) lines with the final, batch-allocated
+    # ones. We ALSO rebuild the in-memory sale.lines collection so the caller
+    # can serialize the sale right after commit without re-querying (a
+    # same-session re-query would return the stale draft objects instead).
     for draft in draft_lines:
         await db.delete(draft)
     await db.flush()
     for final in final_lines:
+        final.sale = sale
         db.add(final)
+    sale.lines = final_lines
 
     if sale.party_id is not None:
         party = await db.get(Party, sale.party_id)

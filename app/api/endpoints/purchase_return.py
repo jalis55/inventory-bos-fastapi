@@ -5,7 +5,8 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import require_superadmin_or_admin_or_storekeeper, get_current_user
 from app.db import get_db
-from app.models.purchase_return import PurchaseReturn
+from app.models.purchase_return import PurchaseReturn, PurchaseReturnLine
+from app.models.product_batch import ProductBatch
 from app.models.user import User
 from app.schemas.purchase_return import (
     PurchaseReturnCreate, PurchaseReturnOut, PurchaseReturnOutPaginate,
@@ -24,7 +25,9 @@ async def create_return(
     try:
         purchase_return = await create_purchase_return(db, payload, current_user.id)
         await db.commit()
-        await db.refresh(purchase_return, attribute_names=["lines"])
+        # The service appends lines + sets relationships on the object, so it's
+        # ready to serialize directly (expire_on_commit=False). A db.refresh()
+        # here would expire those attrs -> MissingGreenlet on serialization.
         return purchase_return
     except HTTPException:
         await db.rollback()
@@ -42,7 +45,15 @@ async def list_returns(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    stmt = select(PurchaseReturn).options(selectinload(PurchaseReturn.lines))
+    stmt = (
+        select(PurchaseReturn)
+        .options(
+            selectinload(PurchaseReturn.supplier),
+            selectinload(PurchaseReturn.lines)
+            .selectinload(PurchaseReturnLine.batch)
+            .selectinload(ProductBatch.variant),
+        )
+    )
     count_stmt = select(func.count()).select_from(PurchaseReturn)
 
     if supplier_id is not None:
@@ -59,7 +70,14 @@ async def list_returns(
 @router.get("/{id}", response_model=PurchaseReturnOut)
 async def get_return(id: str, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
     result = await db.execute(
-        select(PurchaseReturn).options(selectinload(PurchaseReturn.lines)).where(PurchaseReturn.id == id)
+        select(PurchaseReturn)
+        .options(
+            selectinload(PurchaseReturn.supplier),
+            selectinload(PurchaseReturn.lines)
+            .selectinload(PurchaseReturnLine.batch)
+            .selectinload(ProductBatch.variant),
+        )
+        .where(PurchaseReturn.id == id)
     )
     purchase_return = result.scalars().first()
     if not purchase_return:
