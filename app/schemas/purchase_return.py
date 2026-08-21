@@ -20,6 +20,7 @@ class PurchaseReturnLineCreate(PurchaseReturnConfig):
     """
     purchase_line_id: str = Field(..., description="Original PurchaseLine this return is against")
     qty: Decimal = Field(..., gt=0, description="Quantity being returned to the supplier")
+    reason: Optional[str] = Field(None, max_length=500, description="Per-item reason for the return")
 
 
 class PurchaseReturnLineOut(PurchaseReturnConfig):
@@ -33,6 +34,7 @@ class PurchaseReturnLineOut(PurchaseReturnConfig):
     qty: Decimal
     unit_cost: Decimal           # copied from batch.cost_price at return time
     line_total: Decimal          # qty * unit_cost
+    reason: Optional[str] = None
 
 
 # ─── PurchaseReturn schemas ───────────────────────────────────────────────────

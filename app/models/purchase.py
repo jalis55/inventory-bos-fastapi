@@ -47,6 +47,25 @@ class Purchase(Base):
         Date, server_default=func.now(), onupdate=func.now()
     )
 
+    # Amount paid against THIS purchase invoice. Bumped by record_payment()
+    # (app/services/payment.py) in the same transaction that writes the
+    # Payment row - never set directly. Per-invoice due = SUM(line_total) -
+    # amount_paid, so a supplier's outstanding is shown invoice-by-invoice
+    # instead of only against their overall running balance.
+    amount_paid: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, server_default="0"
+    )
+
+    # Value of goods returned against THIS invoice (created by
+    # app/services/purchase_return.py in the same transaction as the
+    # return). Keeps per-invoice state correct after full payment: a
+    # fully-paid invoice that gets X returned shows a credit (X still owed
+    # to you by the supplier) rather than a blank "fully paid" while only
+    # the supplier's running balance quietly goes negative.
+    returned_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, server_default="0"
+    )
+
     # Relationships
     supplier: Mapped["Party"] = relationship(
         "Party", back_populates="purchases")
@@ -101,6 +120,14 @@ class PurchaseLine(Base):
         CheckConstraint("unit_cost > 0",
                         name="check_purchase_line_unit_cost_positive"),
     )
+
+    # How much of this line is still in inventory (batch.qty_remaining).
+    # Lets the purchase-return UI hide lines that are sold out - you can
+    # only return goods that still exist in stock. Requires the caller to
+    # have eager-loaded `batch` (the endpoints do), otherwise it lazy-loads.
+    @property
+    def qty_remaining(self) -> Decimal | None:
+        return self.batch.qty_remaining if self.batch else None
 
     def __repr__(self):
         return f"<PurchaseLine(id={self.id}, variant_id={self.variant_id}, qty={self.qty})>"

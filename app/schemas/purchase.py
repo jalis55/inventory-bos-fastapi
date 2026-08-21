@@ -30,6 +30,9 @@ class PurchaseLineOut(PurchaseConfig):
     qty: Decimal
     unit_cost: Decimal
     line_total: Decimal
+    # How much of this line is still in stock (null if not yet received /
+    # batch not loaded). Used to hide sold-out lines from purchase returns.
+    qty_remaining: Optional[Decimal] = None
 
 
 class PurchaseCreate(PurchaseConfig):
@@ -64,6 +67,10 @@ class PurchaseOut(PurchaseConfig):
     created_by: Optional[int]
     created_at: datetime
     updated_at: datetime
+    # Per-invoice received + returned amounts -
+    # due = SUM(lines.line_total) - amount_paid - returned_amount
+    amount_paid: Decimal = Decimal("0")
+    returned_amount: Decimal = Decimal("0")
     lines: List[PurchaseLineOut] = []
 
 

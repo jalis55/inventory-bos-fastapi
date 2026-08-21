@@ -141,6 +141,10 @@ async def list_sales(
     limit: int = Query(10, ge=1, le=200),
     party_id: int | None = Query(None),
     sale_status: SaleStatus | None = Query(None, alias="status"),
+    search: str | None = Query(
+        None,
+        description="Match against a sale id or id prefix (used by the sales-return UI's direct-entry box)",
+    ),
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
@@ -153,6 +157,11 @@ async def list_sales(
     if sale_status is not None:
         stmt = stmt.where(Sale.status == sale_status)
         count_stmt = count_stmt.where(Sale.status == sale_status)
+
+    if search:
+        term = f"%{search.strip()}%"
+        stmt = stmt.where(Sale.id.ilike(term))
+        count_stmt = count_stmt.where(Sale.id.ilike(term))
 
     total = (await db.execute(count_stmt)).scalar_one()
     stmt = stmt.order_by(Sale.sale_date.desc(), Sale.created_at.desc())

@@ -35,6 +35,15 @@ class PaymentCreate(PaymentConfig):
             "amount_paid; a refund decrements it."
         ),
     )
+    purchase_id: Optional[str] = Field(
+        None,
+        description=(
+            "PAID_TO_SUPPLIER / REFUND_FROM_SUPPLIER only. The received "
+            "purchase invoice this payment applies to - drives per-invoice "
+            "tracking (purchase.amount_paid / returned_amount). A payment "
+            "increments amount_paid; a refund decrements it."
+        ),
+    )
     sales_return_id: Optional[str] = Field(
         None,
         description=(
@@ -55,6 +64,7 @@ class PaymentOut(PaymentConfig):
     reference_no: Optional[str]
     notes: Optional[str]
     sale_id: Optional[str] = None
+    purchase_id: Optional[str] = None
     sales_return_id: Optional[str]
     created_by: Optional[int]
     created_at: datetime

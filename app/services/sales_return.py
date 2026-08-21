@@ -85,6 +85,7 @@ async def create_sales_return(db: AsyncSession, payload, created_by: int | None)
             qty=line_in.qty,
             unit_price=sline.unit_price,
             line_total=line_total,
+            reason=getattr(line_in, 'reason', None),
         ))
         total += line_total
         sales_by_id[sline.sale_id] = sline.sale

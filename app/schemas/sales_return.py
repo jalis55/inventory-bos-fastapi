@@ -19,6 +19,7 @@ class SalesReturnLineCreate(SalesReturnConfig):
     """
     sale_line_id: str = Field(..., description="Original SaleLine this return is against")
     qty: Decimal = Field(..., gt=0, description="Quantity the customer is returning")
+    reason: Optional[str] = Field(None, max_length=500)
 
 
 class SalesReturnLineOut(SalesReturnConfig):
@@ -32,6 +33,7 @@ class SalesReturnLineOut(SalesReturnConfig):
     qty: Decimal
     unit_price: Decimal          # copied from sale_line.unit_price
     line_total: Decimal          # qty * unit_price
+    reason: Optional[str] = None
 
 
 # ─── SalesReturn schemas ──────────────────────────────────────────────────────

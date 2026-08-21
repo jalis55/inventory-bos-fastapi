@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from app.api.deps import require_superadmin_or_admin_or_storekeeper, get_current_user
 from app.models.product import Product
 from app.models.product_variant import ProductVariant
+from app.models.product_batch import ProductBatch
 from app.schemas.product_variant import (
     ProductVariantCreate,
     ProductVariantUpdate,
@@ -12,11 +13,38 @@ from app.db import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, func, or_
+from decimal import Decimal
 
 # No single router-level prefix - creation is nested under /products,
 # everything else is flat under /variants. Both live in this one file
 # since they're the same resource.
 router = APIRouter(tags=["product-variant"])
+
+
+async def _stock_map(db: AsyncSession, variant_ids: list[str]) -> dict[str, Decimal]:
+    """variant_id -> total qty_remaining across all its batches."""
+    if not variant_ids:
+        return {}
+    rows = (await db.execute(
+        select(
+            ProductBatch.variant_id,
+            func.coalesce(func.sum(ProductBatch.qty_remaining), 0),
+        )
+        .where(ProductBatch.variant_id.in_(variant_ids))
+        .group_by(ProductBatch.variant_id)
+    )).all()
+    return {r[0]: Decimal(str(r[1])) for r in rows}
+
+
+async def _with_stock(db: AsyncSession, items: list[ProductVariant]) -> list[ProductVariantOut]:
+    """Attach computed `qty_in_stock` while keeping the standard fields."""
+    stock = await _stock_map(db, [v.id for v in items])
+    return [
+        ProductVariantOut.model_validate(v).model_copy(
+            update={"qty_in_stock": stock.get(v.id, Decimal("0"))}
+        )
+        for v in items
+    ]
 
 
 @router.post(
@@ -89,7 +117,7 @@ async def list_variants_for_product(
 
     stmt = stmt.offset(skip).limit(limit)
     result = await db.execute(stmt)
-    items = result.scalars().all()
+    items = await _with_stock(db, list(result.scalars().all()))
 
     return ProductVariantOutPaginate(
         total=total, page=(skip // limit) + 1, size=len(items), items=items
@@ -135,7 +163,7 @@ async def list_variants(
 
     stmt = stmt.offset(skip).limit(limit)
     result = await db.execute(stmt)
-    items = result.scalars().all()
+    items = await _with_stock(db, list(result.scalars().all()))
 
     return ProductVariantOutPaginate(
         total=total, page=(skip // limit) + 1, size=len(items), items=items
@@ -179,7 +207,10 @@ async def get_variant(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Variant not found"
         )
-    return variant
+    stock = await _stock_map(db, [variant.id])
+    return ProductVariantOut.model_validate(variant).model_copy(
+        update={"qty_in_stock": stock.get(variant.id, Decimal("0"))}
+    )
 
 
 @router.put("/variants/{id}", response_model=ProductVariantOut)

@@ -66,6 +66,9 @@ class SalesReturnLine(Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
+    # Per-line reason for the return (e.g. "damaged", "wrong size", "expired").
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     sales_return: Mapped["SalesReturn"] = relationship("SalesReturn", back_populates="lines")
     sale_line: Mapped["SaleLine"] = relationship("SaleLine")
     batch: Mapped["ProductBatch"] = relationship("ProductBatch")

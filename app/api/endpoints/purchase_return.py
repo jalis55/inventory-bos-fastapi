@@ -1,16 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
+from sqlalchemy.types import String
 
 from app.api.deps import require_superadmin_or_admin_or_storekeeper, get_current_user
 from app.db import get_db
 from app.models.purchase_return import PurchaseReturn, PurchaseReturnLine
 from app.models.product_batch import ProductBatch
+from app.models.party import Party
 from app.models.user import User
-from app.schemas.purchase_return import (
-    PurchaseReturnCreate, PurchaseReturnOut, PurchaseReturnOutPaginate,
-)
+from app.schemas.purchase_return import PurchaseReturnCreate, PurchaseReturnOut, PurchaseReturnOutPaginate
 from app.services.purchase_return import create_purchase_return
 
 router = APIRouter(prefix="/purchase-returns", tags=["purchase-return"])
@@ -42,6 +42,10 @@ async def list_returns(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=200),
     supplier_id: int | None = Query(None),
+    search: str | None = Query(
+        None,
+        description="Match supplier id / name / email / phone or a return id prefix",
+    ),
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
@@ -59,6 +63,18 @@ async def list_returns(
     if supplier_id is not None:
         stmt = stmt.where(PurchaseReturn.supplier_id == supplier_id)
         count_stmt = count_stmt.where(PurchaseReturn.supplier_id == supplier_id)
+
+    if search:
+        term = f"%{search.strip()}%"
+        cond = or_(
+            func.cast(PurchaseReturn.supplier_id, String).ilike(term),
+            func.cast(PurchaseReturn.id, String).ilike(term),
+            Party.name.ilike(term),
+            func.coalesce(Party.email, "").ilike(term),
+            func.coalesce(Party.phone, "").ilike(term),
+        )
+        stmt = stmt.join(Party, Party.id == PurchaseReturn.supplier_id).where(cond)
+        count_stmt = count_stmt.join(Party, Party.id == PurchaseReturn.supplier_id).where(cond)
 
     total = (await db.execute(count_stmt)).scalar_one()
     stmt = stmt.order_by(PurchaseReturn.return_date.desc()).offset(skip).limit(limit)

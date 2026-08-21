@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
-from app.models.purchase import PurchaseLine
+from app.models.purchase import PurchaseLine, Purchase
 from app.models.purchase_return import PurchaseReturn, PurchaseReturnLine
 from app.models.product_batch import ProductBatch
 from app.models.stock_movement import StockMovement
@@ -38,14 +38,26 @@ async def create_purchase_return(db: AsyncSession, payload, created_by: int | No
     await db.flush()
 
     total = Decimal("0")
+    # Per invoice: how much of this return applies to each affected purchase,
+    # so each invoice's returned_amount stays correct even if one return
+    # document spans lines from multiple purchases.
+    purchases_by_id: dict[str, "Purchase"] = {}
+    return_totals: dict[str, Decimal] = {}
     for line_in in payload.lines:
         pline = (await db.execute(
-            select(PurchaseLine).where(PurchaseLine.id == line_in.purchase_line_id)
+            select(PurchaseLine)
+            .options(selectinload(PurchaseLine.purchase))
+            .where(PurchaseLine.id == line_in.purchase_line_id)
         )).scalars().first()
         if not pline:
             raise HTTPException(
                 status.HTTP_404_NOT_FOUND,
                 f"PurchaseLine {line_in.purchase_line_id} not found",
+            )
+        if pline.purchase.supplier_id != payload.supplier_id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "All return lines must belong to the selected supplier",
             )
 
         batch = (await db.execute(
@@ -79,8 +91,14 @@ async def create_purchase_return(db: AsyncSession, payload, created_by: int | No
             qty=line_in.qty,
             unit_cost=batch.cost_price,
             line_total=line_total,
+            reason=line_in.reason,
         ))
         total += line_total
+        purchases_by_id[pline.purchase_id] = pline.purchase
+        return_totals[pline.purchase_id] = return_totals.get(pline.purchase_id, Decimal("0")) + line_total
+
+    for pid, rtotal in return_totals.items():
+        purchases_by_id[pid].returned_amount += rtotal
 
     # Reduces what you owe the supplier (or increases what they owe you).
     write_ledger_entry(

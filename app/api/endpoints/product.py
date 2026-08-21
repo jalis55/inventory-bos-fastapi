@@ -25,6 +25,19 @@ async def create_product(
     _=Depends(require_superadmin_or_admin_or_storekeeper),
 ):
     try:
+        dup = await db.execute(
+            select(Product.id).where(
+                Product.name == product.name,
+                Product.brand_id == product.brand_id,
+                Product.category_id == product.category_id,
+            )
+        )
+        if dup.scalars().first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A product with this name, brand, and category already exists",
+            )
+
         new_product = Product(**product.model_dump())
         db.add(new_product)
         await db.commit()
@@ -43,6 +56,8 @@ async def create_product(
 
         return loaded_product
 
+    except HTTPException:
+        raise
     except IntegrityError:
         await db.rollback()
         raise HTTPException(
@@ -163,6 +178,21 @@ async def update_product(
             )
             for variant in variants_result.scalars().all():
                 variant.name = f"{product.name} {variant.variant_name}"
+
+        dup = await db.execute(
+            select(Product.id).where(
+                Product.name == product.name,
+                Product.brand_id == product.brand_id,
+                Product.category_id == product.category_id,
+                Product.id != id,
+            )
+        )
+        if dup.scalars().first():
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A product with this name, brand, and category already exists",
+            )
 
         await db.commit()
 

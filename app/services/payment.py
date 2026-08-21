@@ -5,7 +5,8 @@ from fastapi import HTTPException, status
 from app.models.payment import Payment
 from app.models.party import Party
 from app.models.sale import Sale
-from app.models.enums import PaymentDirection, LedgerRefType, SaleStatus
+from app.models.purchase import Purchase
+from app.models.enums import PaymentDirection, LedgerRefType, SaleStatus, PurchaseStatus
 from app.services.party_ledger import write_ledger_entry
 
 
@@ -47,6 +48,7 @@ async def record_payment(db, payload, created_by: int | None) -> Payment:
         notes=payload.notes,
         sales_return_id=payload.sales_return_id,
         sale_id=payload.sale_id,
+        purchase_id=payload.purchase_id,
         created_by=created_by,
     )
     db.add(payment)
@@ -105,12 +107,67 @@ async def record_payment(db, payload, created_by: int | None) -> Payment:
                 )
             sale.amount_paid = sale.amount_paid - payload.amount
 
+    if payload.purchase_id is not None:
+        if payload.direction not in (
+            PaymentDirection.PAID_TO_SUPPLIER,
+            PaymentDirection.REFUND_FROM_SUPPLIER,
+        ):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "purchase_id can only be used with PAID_TO_SUPPLIER or REFUND_FROM_SUPPLIER payments",
+            )
+        if payload.party_id is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "party_id is required when allocating a payment to a purchase",
+            )
+        purchase = (await db.execute(
+            select(Purchase)
+            .options(selectinload(Purchase.lines))
+            .where(Purchase.id == payload.purchase_id)
+        )).scalars().first()
+        if not purchase or purchase.status != PurchaseStatus.RECEIVED:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Purchase not found or not received",
+            )
+        if purchase.supplier_id != payload.party_id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "This purchase belongs to a different supplier",
+            )
+        purchase_total = sum((Decimal(str(l.line_total)) for l in purchase.lines), Decimal("0"))
+        outstanding = purchase_total - purchase.amount_paid - purchase.returned_amount
+
+        if payload.direction == PaymentDirection.PAID_TO_SUPPLIER:
+            if payload.amount > outstanding:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"Payment exceeds the purchase's outstanding balance ({outstanding})",
+                )
+            purchase.amount_paid = purchase.amount_paid + payload.amount
+        else:  # REFUND_FROM_SUPPLIER - collect an invoice's credit
+            credit = -outstanding if outstanding < 0 else Decimal("0")
+            if payload.amount > credit:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"Refund exceeds the invoice's credit ({credit})",
+                )
+            if payload.amount > purchase.amount_paid:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"Refund exceeds the amount paid on this invoice ({purchase.amount_paid})",
+                )
+            purchase.amount_paid = purchase.amount_paid - payload.amount
+
     if payload.party_id is not None:
         party = await db.get(Party, payload.party_id)
 
         notes = None
         if payload.sale_id is not None:
             notes = f"Payment {payment.id} for sale {payload.sale_id}"
+        if payload.purchase_id is not None:
+            notes = f"Payment {payment.id} for purchase {payload.purchase_id}"
 
         debit_directions = {PaymentDirection.PAID_TO_SUPPLIER, PaymentDirection.REFUND_TO_CUSTOMER}
         if payload.direction in debit_directions:

@@ -1,6 +1,6 @@
 from typing import List, Optional
 from app.core import BaseSkeleton
-from sqlalchemy import String, Integer, Text, ForeignKey
+from sqlalchemy import String, Integer, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.utils.helpers import generate_uuid
 
@@ -10,6 +10,11 @@ class Product(BaseSkeleton):
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=generate_uuid)
+
+    # Override the base `name` (which is globally unique) - the SAME product
+    # name is allowed across different brands/categories. Uniqueness is
+    # enforced on the combination (name, brand_id, category_id) below.
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     category_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("categories.id"), nullable=False)
@@ -24,6 +29,15 @@ class Product(BaseSkeleton):
 
     variants: Mapped[List["ProductVariant"]] = relationship(
         "ProductVariant", back_populates="product", cascade="all, delete-orphan"
+    )
+
+    # A product is only considered a duplicate when name + brand + category
+    # all match - the same name can exist under different brands/categories.
+    __table_args__ = (
+        UniqueConstraint(
+            "name", "brand_id", "category_id",
+            name="uq_products_name_brand_category",
+        ),
     )
 
     # NOTE: intentionally no direct Product <-> Party (supplier)

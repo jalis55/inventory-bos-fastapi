@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
+from sqlalchemy.types import String
 
 from app.api.deps import require_superadmin_or_admin_or_storekeeper, get_current_user
 from app.db import get_db
 from app.models.sales_return import SalesReturn, SalesReturnLine
 from app.models.product_batch import ProductBatch
+from app.models.party import Party
 from app.models.user import User
 from app.schemas.sales_return import (
     SalesReturnCreate, SalesReturnOut, SalesReturnOutPaginate,
@@ -42,6 +44,10 @@ async def list_returns(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=200),
     party_id: int | None = Query(None, description="Omit to include walk-in returns too"),
+    search: str | None = Query(
+        None,
+        description="Match customer id / name / email / phone or a return id prefix",
+    ),
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
@@ -59,6 +65,18 @@ async def list_returns(
     if party_id is not None:
         stmt = stmt.where(SalesReturn.party_id == party_id)
         count_stmt = count_stmt.where(SalesReturn.party_id == party_id)
+
+    if search:
+        term = f"%{search.strip()}%"
+        cond = or_(
+            func.cast(SalesReturn.party_id, String).ilike(term),
+            func.cast(SalesReturn.id, String).ilike(term),
+            Party.name.ilike(term),
+            func.coalesce(Party.email, "").ilike(term),
+            func.coalesce(Party.phone, "").ilike(term),
+        )
+        stmt = stmt.outerjoin(Party, Party.id == SalesReturn.party_id).where(cond)
+        count_stmt = count_stmt.outerjoin(Party, Party.id == SalesReturn.party_id).where(cond)
 
     total = (await db.execute(count_stmt)).scalar_one()
     stmt = stmt.order_by(SalesReturn.return_date.desc()).offset(skip).limit(limit)

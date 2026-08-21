@@ -1,6 +1,6 @@
 from decimal import Decimal
 from typing import List, Optional
-from sqlalchemy import String, Numeric, ForeignKey, Index, CheckConstraint
+from sqlalchemy import String, Numeric, ForeignKey, Index, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core import BaseSkeleton
 from app.utils.helpers import generate_uuid
@@ -21,8 +21,13 @@ class ProductVariant(BaseSkeleton):
         String(64), nullable=True, unique=True, index=True
     )
 
-    # `name` (inherited from BaseSkeleton) = full display name,
-    # e.g. "Dipmoan 250ml".
+    # Override the base `name` (which is globally unique) - the SAME variant
+    # name is allowed across different products (e.g. "SATA SSD 240GB" from
+    # Samsung and Adata). Uniqueness is enforced on the combination
+    # (product_id, name) below, matching Product's own per-brand/category
+    # policy.
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+
     # `variant_name` = just the distinguishing part, e.g. "250ml".
     variant_name: Mapped[str] = mapped_column(String(100), nullable=False)
 
@@ -41,6 +46,10 @@ class ProductVariant(BaseSkeleton):
 
     __table_args__ = (
         Index("idx_variant_product_id", "product_id"),
+        UniqueConstraint(
+            "product_id", "name",
+            name="uq_variant_product_name",
+        ),
         CheckConstraint("pack_size IS NULL OR pack_size > 0", name="check_pack_size_positive"),
         CheckConstraint(
             "reorder_level IS NULL OR reorder_level >= 0", name="check_reorder_level_nonneg"

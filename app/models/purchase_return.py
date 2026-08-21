@@ -62,6 +62,11 @@ class PurchaseReturnLine(Base):
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
+    # Per-line reason for the return (e.g. "damaged", "wrong size", "expired").
+    # Each item can be returned for a different reason, so it lives on the
+    # line, not just on the return header.
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     purchase_return: Mapped["PurchaseReturn"] = relationship(
         "PurchaseReturn", back_populates="lines"
     )

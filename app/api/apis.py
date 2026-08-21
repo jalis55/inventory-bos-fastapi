@@ -14,6 +14,7 @@ from .endpoints import (auth,
                         stock_movement,
                         sale,
                         sales_return,
+                        invoice_ledger,
                         )
 
 
@@ -33,3 +34,4 @@ router.include_router(payment.router)
 router.include_router(stock_movement.router)
 router.include_router(sale.router)
 router.include_router(sales_return.router)
+router.include_router(invoice_ledger.router)

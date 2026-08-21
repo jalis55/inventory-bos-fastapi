@@ -50,6 +50,13 @@ class Payment(Base):
         String(36), ForeignKey("sales.id"), nullable=True
     )
 
+    # Mirror of sale_id for the supplier side: the received purchase
+    # invoice this payment settles. Drives per-invoice tracking in
+    # purchase.amount_paid. Only meaningful for PAID_TO_SUPPLIER.
+    purchase_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("purchases.id"), nullable=True
+    )
+
     created_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True
     )
@@ -58,6 +65,7 @@ class Payment(Base):
     party: Mapped[Optional["Party"]] = relationship("Party", back_populates="payments")
     sales_return: Mapped[Optional["SalesReturn"]] = relationship("SalesReturn")
     sale: Mapped[Optional["Sale"]] = relationship("Sale")
+    purchase: Mapped[Optional["Purchase"]] = relationship("Purchase")
 
     __table_args__ = (
         Index("idx_payment_party_id", "party_id"),

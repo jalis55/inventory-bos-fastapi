@@ -44,6 +44,12 @@ class ProductVariantOut(BaseModel):
     pack_size: Optional[Decimal]
     reorder_level: Optional[Decimal]
     is_active: bool
+    # Total quantity available to sell / remove - sum of every batch's
+    # qty_remaining. -1 when the caller didn't ask for stock (avoid the
+    # ambiguity of 0 = "no stock" vs "not computed").
+    qty_in_stock: Decimal = Field(
+        default=Decimal("-1"), description="Sum of batch qty_remaining for this variant"
+    )
     created_at: datetime
     updated_at: datetime
 

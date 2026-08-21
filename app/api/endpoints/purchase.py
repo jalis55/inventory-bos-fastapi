@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import require_superadmin_or_admin_or_storekeeper, get_current_user
@@ -27,7 +27,9 @@ async def _get_purchase_or_404(
 ) -> Purchase:
     stmt = select(Purchase).where(Purchase.id == purchase_id)
     if load_lines:
-        stmt = stmt.options(selectinload(Purchase.lines))
+        stmt = stmt.options(
+            selectinload(Purchase.lines).selectinload(PurchaseLine.batch)
+        )
     result = await db.execute(stmt)
     purchase = result.scalars().first()
     if not purchase:
@@ -108,10 +110,16 @@ async def list_purchases(
     # Renamed from `status` to avoid shadowing the `status` module imported
     # above (the alias keeps the query string itself unchanged: ?status=).
     purchase_status: PurchaseStatus | None = Query(None, alias="status"),
+    search: str | None = Query(
+        None,
+        description="Match against reference_no or a purchase id prefix (used by the purchase-return UI's direct-entry box)",
+    ),
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    stmt = select(Purchase).options(selectinload(Purchase.lines))
+    stmt = select(Purchase).options(
+        selectinload(Purchase.lines).selectinload(PurchaseLine.batch)
+    )
     count_stmt = select(func.count()).select_from(Purchase)
 
     if supplier_id is not None:
@@ -120,6 +128,12 @@ async def list_purchases(
     if purchase_status is not None:
         stmt = stmt.where(Purchase.status == purchase_status)
         count_stmt = count_stmt.where(Purchase.status == purchase_status)
+
+    if search:
+        term = f"%{search.strip()}%"
+        cond = or_(Purchase.reference_no.ilike(term), Purchase.id.ilike(term))
+        stmt = stmt.where(cond)
+        count_stmt = count_stmt.where(cond)
 
     total = (await db.execute(count_stmt)).scalar_one()
     stmt = stmt.order_by(Purchase.purchase_date.desc(),
