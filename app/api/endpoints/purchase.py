@@ -90,7 +90,14 @@ async def create_purchase(
 
         db.add(purchase)
         await db.commit()
-        return purchase
+        # Reload with eager-loaded relationships to avoid MissingGreenlet
+        # when FastAPI serializes the response
+        result = await db.execute(
+            select(Purchase)
+            .options(selectinload(Purchase.lines).selectinload(PurchaseLine.batch))
+            .where(Purchase.id == purchase.id)
+        )
+        return result.scalars().first()
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT,

@@ -9,6 +9,7 @@ from app.models.enums import PaymentDirection
 from app.models.user import User
 from app.schemas.payment import PaymentCreate, PaymentOut, PaymentOutPaginate
 from app.services.payment import record_payment
+from sqlalchemy.exc import IntegrityError
 
 router = APIRouter(prefix="/payments", tags=["payment"])
 
@@ -27,6 +28,12 @@ async def create_payment(
     except HTTPException:
         await db.rollback()
         raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A database constraint was violated (duplicate or referenced record)",
+        )
     except Exception as e:
         await db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))

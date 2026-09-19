@@ -12,6 +12,7 @@ from app.models.party import Party
 from app.models.user import User
 from app.schemas.purchase_return import PurchaseReturnCreate, PurchaseReturnOut, PurchaseReturnOutPaginate
 from app.services.purchase_return import create_purchase_return
+from sqlalchemy.exc import IntegrityError
 
 router = APIRouter(prefix="/purchase-returns", tags=["purchase-return"])
 
@@ -32,6 +33,12 @@ async def create_return(
     except HTTPException:
         await db.rollback()
         raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A database constraint was violated (duplicate or referenced record)",
+        )
     except Exception as e:
         await db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))

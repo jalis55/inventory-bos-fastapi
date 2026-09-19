@@ -5,6 +5,7 @@ from app.models import Category as CategoryModel
 from app.schemas.category import Category, CategoryUpdate, CategoryOut, PaginateResponse
 from app.api.deps import get_current_user, require_superadmin_or_admin_or_storekeeper
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 router = APIRouter(prefix="/category", tags=["category"])
 
@@ -41,11 +42,25 @@ async def create_category(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_superadmin_or_admin_or_storekeeper),
 ):
-    new_category = CategoryModel(**category.model_dump())
-    db.add(new_category)
-    await db.commit()
-    await db.refresh(new_category)
-    return new_category
+    try:
+        new_category = CategoryModel(**category.model_dump())
+        db.add(new_category)
+        await db.commit()
+        await db.refresh(new_category)
+        return new_category
+    except HTTPException:
+        raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A category with this name already exists",
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.put("/{id}", response_model=CategoryOut)
@@ -62,9 +77,24 @@ async def update_category(
     update_data = category_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(category, key, value)
-    await db.commit()
-    await db.refresh(category)
-    return category
+
+    try:
+        await db.commit()
+        await db.refresh(category)
+        return category
+    except HTTPException:
+        raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A category with this name already exists",
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.get("/{id}", response_model=CategoryOut)
@@ -90,6 +120,20 @@ async def delete_category(
     category = result.scalars().first()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
-    await db.delete(category)
-    await db.commit()
-    return {"message": "Category deleted successfully"}
+    try:
+        await db.delete(category)
+        await db.commit()
+        return {"message": "Category deleted successfully"}
+    except HTTPException:
+        raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Category is referenced by other records and cannot be deleted",
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )

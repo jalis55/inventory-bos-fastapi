@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from app.db import get_db
 from app.schemas.brand import Brand, BrandUpdate, BrandOut
 from app.models.brand import Brand as BrandModel
@@ -15,11 +16,25 @@ async def create_brand(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_superadmin_or_admin_or_storekeeper),
 ):
-    new_brand = BrandModel(**brand.model_dump())
-    db.add(new_brand)
-    await db.commit()
-    await db.refresh(new_brand)
-    return new_brand
+    try:
+        new_brand = BrandModel(**brand.model_dump())
+        db.add(new_brand)
+        await db.commit()
+        await db.refresh(new_brand)
+        return new_brand
+    except HTTPException:
+        raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A brand with this name already exists",
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.get("/")
@@ -77,9 +92,23 @@ async def update_brand(
     for key, value in update_data.items():
         setattr(brand, key, value)
 
-    await db.commit()
-    await db.refresh(brand)
-    return brand
+    try:
+        await db.commit()
+        await db.refresh(brand)
+        return brand
+    except HTTPException:
+        raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A brand with this name already exists",
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.delete("/{id}")
@@ -93,6 +122,20 @@ async def delete_brand(
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
-    await db.delete(brand)
-    await db.commit()
-    return {"message": "Brand deleted successfully"}
+    try:
+        await db.delete(brand)
+        await db.commit()
+        return {"message": "Brand deleted successfully"}
+    except HTTPException:
+        raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Brand is referenced by other records and cannot be deleted",
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )

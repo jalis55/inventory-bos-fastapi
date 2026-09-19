@@ -14,6 +14,7 @@ from app.schemas.sales_return import (
     SalesReturnCreate, SalesReturnOut, SalesReturnOutPaginate,
 )
 from app.services.sales_return import create_sales_return
+from sqlalchemy.exc import IntegrityError
 
 router = APIRouter(prefix="/sales-returns", tags=["sales-return"])
 
@@ -34,6 +35,12 @@ async def create_return(
     except HTTPException:
         await db.rollback()
         raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A database constraint was violated (duplicate or referenced record)",
+        )
     except Exception as e:
         await db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
+from sqlalchemy.exc import IntegrityError
 from app.db import get_db
 from app.core import settings
 from app.models import User, Role
@@ -62,12 +63,25 @@ async def change_password(
     if not verify_password(request_body.old_password, current_user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid old password")
 
-    current_user.hashed_password = hash_password(request_body.new_password)
-    db.add(current_user)
-    await db.commit()
-    await db.refresh(current_user)
-
-    return {"message": "Password changed successfully"}
+    try:
+        current_user.hashed_password = hash_password(request_body.new_password)
+        db.add(current_user)
+        await db.commit()
+        await db.refresh(current_user)
+        return {"message": "Password changed successfully"}
+    except HTTPException:
+        raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A database constraint was violated (duplicate or referenced record)",
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.put("/{user_id}", response_model=UserOut)
@@ -108,9 +122,23 @@ async def update_user(
         if value is not None:
             setattr(user_to_update, key, value)
 
-    await db.commit()
-    await db.refresh(user_to_update)
-    return user_to_update
+    try:
+        await db.commit()
+        await db.refresh(user_to_update)
+        return user_to_update
+    except HTTPException:
+        raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists",
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.post("/reset-password")
@@ -132,9 +160,22 @@ async def reset_password(
     if current_user.role == Role.ADMIN and user.role == Role.ADMIN:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    new_password = settings.DEFAULT_RESET_PASSWORD
-    user.hashed_password = hash_password(new_password)
-    await db.commit()
-    await db.refresh(user)
-
-    return {"message": "Password reset successfully", "new_password": new_password}
+    try:
+        new_password = settings.DEFAULT_RESET_PASSWORD
+        user.hashed_password = hash_password(new_password)
+        await db.commit()
+        await db.refresh(user)
+        return {"message": "Password reset successfully", "new_password": new_password}
+    except HTTPException:
+        raise
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A database constraint was violated (duplicate or referenced record)",
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
